@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+
+    <meta charset="UTF-8" />
+    <title>Simulador Pipeline – Arquitetura II</title>
+    <style>
+        body {
+            /* Fonte "Aptos" com boas alternativas */
+            font-family: "Aptos (Body)", Aptos, Calibri, Segoe UI, sans-serif;
+            background: #f4f4f4;
+            margin: 20px;
+
+            /* Layout de Grid para 'tudo em uma tela' */
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            /* Duas colunas (esquerda/direita) */
+            grid-template-rows: auto 1fr;
+            /* Linha p/ título, linha p/ conteúdo */
+            grid-template-areas:
+                "header header"
+                "main-left main-right";
+            gap: 20px;
+            height: 95vh;
+            /* Tenta ocupar a altura da tela */
+        }
+
+        h1 {
+            text-align: center;
+            grid-area: header;
+            /* Coloca o H1 na área 'header' do grid */
+        }
+
+        /* --- CORREÇÃO AQUI --- */
+        /* Estes são os containers que agrupam seu conteúdo */
+        #program-container {
+            grid-area: main-left;
+        }
+
+        #sim-container {
+            grid-area: main-right;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            /* Impede o container da direita de rolar */
+        }
+
+        textarea {
+            width: 100%;
+            height: 200px;
+            /* Mais espaço para o código */
+            font-family: monospace;
+            margin-bottom: 10px;
+            border: 1px solid #000033;
+            /* Borda azul escura */
+            box-sizing: border-box;
+            /* Garante que padding/border não quebre o layout */
+        }
+
+        .controls button {
+            margin-right: 10px;
+            padding: 6px 12px;
+            /* Botões brancos com borda e texto azul escuro */
+            border: 1px solid #000033;
+            border-radius: 6px;
+            background-color: #ffffff;
+            color: #000033;
+            cursor: pointer;
+            font-weight: bold;
+            font-family: "Aptos (Body)", Aptos, sans-serif;
+        }
+
+        .controls button:hover {
+            background-color: #f0f0f0;
+            /* Leve mudança ao passar o mouse */
+        }
+
+        table {
+            border-collapse: collapse;
+            margin-top: 10px;
+            width: 100%;
+            /* Tabelas ocupam 100% do container */
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid #000033;
+            /* Borda azul escura */
+        }
+
+        th {
+            padding: 5px;
+            text-align: center;
+            /* Header da tabela azul escuro com texto branco */
+            background-color: #000033;
+            color: white;
+        }
+
+        td {
+            padding: 5px;
+            text-align: center;
+            /* Fundo azul extremamente descreto e translúcido */
+            background: rgba(100, 120, 255, 0.05);
+        }
+
+        /* --- Mágica para a Tabela de Registradores --- */
+        #registers-container {
+            margin-top: 10px;
+            /* Isso faz a tabela de registradores usar o espaço restante */
+            flex-grow: 1;
+            overflow-y: auto;
+            /* Adiciona scroll SÓ nela, se precisar */
+        }
+
+        /* Esconde o header original da tabela (Registrador | Valor) */
+        #registers tr:first-child {
+            display: none;
+        }
+
+        #registers tbody {
+            /* Transforma o corpo da tabela em um grid */
+            display: grid;
+            /* 4 colunas (Reg, Val, Reg, Val, Reg, Val, Reg, Val) */
+            grid-template-columns: repeat(4, auto 1fr);
+            gap: 0px 15px;
+            /* Espaço entre as colunas */
+        }
+
+        #registers tr {
+            /* Faz os <td>s serem filhos diretos do grid */
+            display: contents;
+        }
+
+        /* Recria um header para a tabela em grid */
+        #registers-container h3 {
+            display: block;
+            width: 100%;
+            padding: 5px;
+            margin: 0;
+            text-align: center;
+            background-color: #000033;
+            color: white;
+            border: 1px solid #000033;
+            box-sizing: border-box;
+            /* Garante que o padding não quebre o layout */
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Simulador Pipeline (Arquitetura II)</h1>
+
+    <div id="program-container">
+        <h3>Programa:</h3>
+        <textarea id="program-input">// Exemplo:
+addi x1, x0, 4
+addi x2, x0, 10
+sw x2, 0(x1)
+lw x3, 0(x1)
+add x4, x3, x2
+addi x5, x0, 1
+beq x5, x0, 2
+add x6, x1, x1
+nop
+ </textarea>
+
+        <div class="controls">
+            <button id="btn-load">Carregar Programa</button>
+            <button id="btn-step">Próximo Ciclo</button>
+            <button id="btn-run">Executar Tudo</button>
+            <button id="btn-reset">Resetar</button>
+            <button id="btn-export">Exportar CSV</button>
+        </div>
+    </div>
+
+    <div id="sim-container">
+        <h3>Pipeline:</h3>
+        <table id="pipeline">
+            <tr>
+                <th>IF</th>
+                <th>ID</th>
+                <th>EX</th>
+                <th>MEM</th>
+                <th>WB</th>
+            </tr>
+            <tr>
+                <td id="stage-if">-</td>
+                <td id="stage-id">-</td>
+                <td id="stage-ex">-</td>
+                <td id="stage-mem">-</td>
+                <td id="stage-wb">-</td>
+            </tr>
+        </table>
+
+        <div id="registers-container">
+            <h3>Registradores:</h3>
+            <table id="registers">
+                <tr>
+                    <th>Registrador</th>
+                    <th>Valor</th>
+                </tr>
+            </table>
+        </div>
+
+        <h3>Métricas:</h3>
+        <table id="metrics">
+            <tr>
+                <th>Ciclos</th>
+                <th>CPI</th>
+                <th>Stalls</th>
+                <th>Flushes</th>
+                <th>Branch Hits</th>
+                <th>Cache I Hit</th>
+                <th>Cache D Hit</th>
+
+            </tr>
+            <tr>
+                <td id="metrics-cycles">0</td>
+                <td id="metrics-cpi">0</td>
+                <td id="metrics-stalls">0</td>
+                <td id="metrics-flushes">0</td>
+                <td id="metrics-branch">0</td>
+                <td id="metrics-ci">0</td>
+                <td id="metrics-cd">0</td>
+            </tr>
+        </table>
+    </div>
+
+
+    <script src="simulator.js"></script>
+
+    <script>
+        let sim = null;
+        let running = false;
+
+        // Popula a tabela de registradores (x0–x31)
+        const regsTable = document.getElementById('registers');
+        for (let i = 0; i < 32; i++) {
+            const row = regsTable.insertRow();
+            row.insertCell().innerText = 'x' + i;
+            row.insertCell().id = 'reg-' + i;
+            row.cells[1].innerText = '0';
+        }
+
+        // Botão: Carregar Programa
+        document.getElementById('btn-load').addEventListener('click', () => {
+            const programText = document.getElementById('program-input').value.trim();
+            const program = programText.split('\n').map(line => line.trim()).filter(line => line !== '' && !line.startsWith('//'));
+
+            sim = new PipelineSimulator(program, {
+                predictorMode: "onebit",
+                predictorSize: 32,
+                L1ISizeWords: 64,
+                L1ILineWords: 4,
+                L1IAssoc: 2,
+                L1IMissPenalty: 8,
+                L1DSizeWords: 64,
+                L1DLineWords: 4,
+                L1DAssoc: 2,
+                L1DMissPenalty: 12
+            });
+            updateUI();
+        });
+
+        // Botão: Próximo Ciclo
+        document.getElementById('btn-step').addEventListener('click', () => {
+            if (!sim) return;
+            sim.tick();
+            updateUI();
+        });
+
+        // Botão: Executar Tudo (com atraso para visualização)
+        document.getElementById('btn-run').addEventListener('click', async () => {
+            if (!sim) return;
+            running = true;
+            for (let i = 0; i < 500 && !sim.finished && running; i++) {
+                sim.tick();
+                updateUI();
+                await new Promise(r => setTimeout(r, 150)); // atraso visual
+            }
+        });
+
+        // Botão: Resetar
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            running = false;
+            sim = null;
+            document.querySelectorAll('#pipeline td').forEach(td => td.innerText = '-');
+            for (let i = 0; i < 32; i++) document.getElementById('reg-' + i).innerText = '0';
+            document.querySelectorAll('#metrics td').forEach(td => td.innerText = '0');
+        });
+
+        // Botão: Exportar CSV
+        document.getElementById('btn-export').addEventListener('click', () => {
+            if (!sim) {
+                alert("Nenhuma simulação carregada!");
+                return;
+            }
+            sim.exportMetricsCSV();
+            alert("Arquivo CSV exportado com sucesso!");
+        });
+
+        // Atualiza a interface com o estado do simulador
+        function updateUI() {
+            if (!sim) return;
+            document.getElementById('stage-if').innerText = sim.IF_ID.instr ? sim.IF_ID.instr.opcode : 'nop';
+            document.getElementById('stage-id').innerText = sim.ID_EX.instr ? sim.ID_EX.instr.opcode : 'nop';
+            document.getElementById('stage-ex').innerText = sim.EX_MEM.instr ? sim.EX_MEM.instr.opcode : 'nop';
+            document.getElementById('stage-mem').innerText = sim.MEM_WB.instr ? sim.MEM_WB.instr.opcode : 'nop';
+            document.getElementById('stage-wb').innerText = sim.MEM_WB.instr ? sim.MEM_WB.instr.opcode : 'nop';
+
+            // Atualiza registradores
+            if (sim.regFile && sim.regFile.regs) {
+                sim.regFile.regs.forEach((val, i) => {
+                    document.getElementById('reg-' + i).innerText = val;
+                });
+            }
+
+            // Atualiza métricas
+            document.getElementById('metrics-cycles').innerText = sim.cycle;
+            const CPI = sim.instructionsCommitted > 0 ? (sim.cycle / sim.instructionsCommitted).toFixed(2) : 0;
+            document.getElementById('metrics-cpi').innerText = CPI;
+            document.getElementById('metrics-stalls').innerText = sim.stallsData + sim.stallsCache;
+            document.getElementById('metrics-flushes').innerText = sim.flushes;
+            document.getElementById('metrics-branch').innerText = sim.branchPredictions ? `${sim.branchCorrect}/${sim.branchPredictions}` : "0/0";
+            document.getElementById('metrics-ci').innerText = sim.cacheI ? sim.cacheI.stats().hitRate.toFixed(2) : "1.0";
+            document.getElementById('metrics-cd').innerText = sim.cacheD ? sim.cacheD.stats().hitRate.toFixed(2) : "1.0";
+        }
+    </script>
+</body>
+
+</html>
