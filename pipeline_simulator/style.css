@@ -1,0 +1,170 @@
+:root {
+    --c1: #f3f5f8;
+    --c2: #e9edf1;
+    --c3: #d0dee7;
+    --c4: #cad5df;
+    --c5: #b7c6d4;
+    --c6: #9aafc2;
+    --c7: #87a7bb;
+    --c8: #709ab3;
+    --text: #1f2a35;
+}
+
+body {
+    font-family: "Segoe UI", Calibri, sans-serif;
+    background-color: var(--c1);
+    color: var(--text);
+    margin: 0;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 1fr 1.5fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+        "header header"
+        "left right";
+    gap: 20px;
+    height: 95vh;
+    box-sizing: border-box; /* Garante que padding não estoure a viewport */
+}
+
+h1 {
+    grid-area: header;
+    text-align: center;
+    color: var(--c8);
+    font-size: 28px;
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+#program-container {
+    grid-area: left;
+    background: var(--c2);
+    border: 1px solid var(--c4);
+    border-radius: 12px;
+    padding: 15px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    display: flex;
+    flex-direction: column;
+}
+
+#sim-container {
+    grid-area: right;
+    background: var(--c2);
+    border: 1px solid var(--c4);
+    border-radius: 12px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    /* Garante que o container não estoure a tela se o conteúdo for grande */
+    overflow: hidden; 
+}
+
+textarea {
+    width: 100%;
+    /* Faz o textarea preencher o espaço disponível */
+    flex-grow: 1;
+    min-height: 200px; 
+    font-family: monospace;
+    font-size: 14px;
+    border: 1px solid var(--c5);
+    border-radius: 8px;
+    padding: 8px;
+    background: var(--c1);
+    box-sizing: border-box;
+    color: var(--text);
+}
+
+.controls {
+    margin-top: 10px;
+}
+
+.controls button {
+    margin-right: 10px;
+    margin-top: 10px;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 6px;
+    background-color: var(--c7);
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.2s ease;
+}
+
+.controls button:hover {
+    background-color: var(--c8);
+}
+
+table {
+    border-collapse: collapse;
+    margin-top: 10px;
+    width: 100%;
+    font-size: 14px;
+}
+
+th,
+td {
+    border: 1px solid var(--c5);
+    padding: 6px;
+    text-align: center;
+}
+
+th {
+    background-color: var(--c7);
+    color: white;
+    text-transform: uppercase;
+    font-size: 13px;
+    position: sticky; /* Faz o header da tabela ficar fixo */
+    top: 0; 
+}
+
+td {
+    background: var(--c1);
+}
+
+#registers-container {
+    flex-grow: 1;
+    overflow-y: auto;
+    margin-top: 10px;
+    border: 1px solid var(--c5);
+    border-radius: 8px;
+}
+
+#registers-container h3 {
+    background-color: var(--c7);
+    color: white;
+    padding: 5px;
+    border-radius: 6px 6px 0 0;
+    margin: 0;
+    text-align: center;
+    position: sticky;
+    top: 0;
+}
+
+#registers {
+    width: 100%;
+    margin-top: 0;
+}
+
+#metrics th {
+    background-color: var(--c8);
+}
+
+select {
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--c5);
+    background-color: white;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    width: 100%;
+    box-sizing: border-box;
+}

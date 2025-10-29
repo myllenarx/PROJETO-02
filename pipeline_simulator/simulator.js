@@ -526,7 +526,12 @@ class PipelineSimulator {
         this.regFile.write(instr.rd, stage.memData); this.instructionsCommitted++; break;
       case "jal": case "jalr":
         this.regFile.write(instr.rd, stage.aluResult); this.instructionsCommitted++; break;
+      case "sw": // sw commita, mas não escreve em reg
+      case "beq": // branches...
+      case "bne":
+        this.instructionsCommitted++; break;
       default:
+        // nop não conta
         break;
     }
     this.MEM_WB = { instr: null };
@@ -565,13 +570,38 @@ class PipelineSimulator {
     if (pipelineEmpty && noMoreInstructions) this.finished = true;
   }
 
-  // ---------- export metrics CSV ----------
+  // ================================================
+  // ========= FUNÇÃO EXPORT ATUALIZADA ========
+  // ================================================
   exportMetricsCSV() {
-    const header = ["cycles","instructionsCommitted","CPI","stallsData","stallsCache","flushes","branchPredictions","branchCorrect","branchAccuracy","L1I_hits","L1I_misses","L1D_hits","L1D_misses"];
+    // Cabeçalho atualizado
+    const header = [
+        "cycles","instructionsCommitted","CPI","stallsData","stallsCache","flushes",
+        "branchPredictions","branchCorrect","branchAccuracy",
+        "L1I_hits","L1I_misses", "L1I_hitRate", "MPKI-I", "AMAT-I",
+        "L1D_hits","L1D_misses", "L1D_hitRate", "MPKI-D", "AMAT-D"
+    ];
+    
     const cycles = this.cycle;
     const instr = this.instructionsCommitted || 0;
-    const cpi = instr ? (cycles / instr).toFixed(4) : "";
-    const branchAcc = this.branchPredictions ? (this.branchCorrect / this.branchPredictions).toFixed(4) : "";
+    const cpi = instr ? (cycles / instr).toFixed(4) : "0";
+    const branchAcc = this.branchPredictions ? (this.branchCorrect / this.branchPredictions).toFixed(4) : "0";
+    const kiloInstructions = instr / 1000;
+
+    // Métricas L1I
+    const statsI = this.cacheI.stats();
+    const missRateI = 1.0 - statsI.hitRate;
+    const amat_i = (this.cacheI.hitTime + (missRateI * this.cacheI.missPenalty)).toFixed(4);
+    const mpki_i = kiloInstructions > 0 ? (this.cacheI.misses / kiloInstructions).toFixed(4) : "0";
+    
+    // Métricas L1D
+    const statsD = this.cacheD.stats();
+    const missRateD = 1.0 - statsD.hitRate;
+    const amat_d = (this.cacheD.hitTime + (missRateD * this.cacheD.missPenalty)).toFixed(4);
+    const mpki_d = kiloInstructions > 0 ? (this.cacheD.misses / kiloInstructions).toFixed(4) : "0";
+
+
+    // Valores atualizados
     const values = [
       cycles,
       instr,
@@ -582,8 +612,18 @@ class PipelineSimulator {
       this.branchPredictions,
       this.branchCorrect,
       branchAcc,
-      this.cacheI.hits, this.cacheI.misses, this.cacheD.hits, this.cacheD.misses
+      this.cacheI.hits, 
+      this.cacheI.misses,
+      statsI.hitRate.toFixed(4),
+      mpki_i,
+      amat_i,
+      this.cacheD.hits, 
+      this.cacheD.misses,
+      statsD.hitRate.toFixed(4),
+      mpki_d,
+      amat_d
     ];
+    
     const csv = header.join(";") + "\n" + values.join(";");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -612,39 +652,3 @@ class PipelineSimulator {
     console.log("Cache I:", this.cacheI.stats(), "Cache D:", this.cacheD.stats());
   }
 }
-
-// ===================== DEMO / COMO USAR =====================
-/*
-Exemplo de uso no navegador console (descomente para testar):
-
-const program = [
-  "addi x1, x0, 4",
-  "sw x2, 0(x1)",
-  "lw x3, 0(x1)",
-  "add x4, x3, x2",
-  "addi x5, x0, 1",
-  "beq x5, x0, 2",   // example branch
-  "add x6, x1, x1",
-  "nop",
-];
-
-const sim = new PipelineSimulator(program, {
-  predictorMode: "onebit",
-  predictorSize: 32,
-  L1ISizeWords: 64,
-  L1ILineWords: 4,
-  L1IAssoc: 2,
-  L1IMissPenalty: 8,
-  L1DSizeWords: 64,
-  L1DLineWords: 4,
-  L1DAssoc: 2,
-  L1DMissPenalty: 12
-});
-
-for (let i=0; i<500 && !sim.finished; i++) {
-  sim.tick();
-  sim.dumpState();
-}
-sim.exportMetricsCSV();
-*/
-
