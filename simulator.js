@@ -584,7 +584,7 @@ class PipelineSimulator {
       branchAcc,
       this.cacheI.hits, this.cacheI.misses, this.cacheD.hits, this.cacheD.misses
     ];
-    const csv = header.join(",") + "\n" + values.join(",");
+    const csv = header.join(";") + "\n" + values.join(";");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

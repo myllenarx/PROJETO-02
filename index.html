@@ -2,149 +2,152 @@
 <html lang="pt-BR">
 
 <head>
-
     <meta charset="UTF-8" />
     <title>Simulador Pipeline – Arquitetura II</title>
     <style>
-        body {
-            /* Fonte "Aptos" com boas alternativas */
-            font-family: "Aptos (Body)", Aptos, Calibri, Segoe UI, sans-serif;
-            background: #f4f4f4;
-            margin: 20px;
+        :root {
+            --c1: #f3f5f8;
+            --c2: #e9edf1;
+            --c3: #d0dee7;
+            --c4: #cad5df;
+            --c5: #b7c6d4;
+            --c6: #9aafc2;
+            --c7: #87a7bb;
+            --c8: #709ab3;
+            --text: #1f2a35;
+        }
 
-            /* Layout de Grid para 'tudo em uma tela' */
+        body {
+            font-family: "Segoe UI", Calibri, sans-serif;
+            background-color: var(--c1);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
             display: grid;
             grid-template-columns: 1fr 1.5fr;
-            /* Duas colunas (esquerda/direita) */
             grid-template-rows: auto 1fr;
-            /* Linha p/ título, linha p/ conteúdo */
             grid-template-areas:
                 "header header"
-                "main-left main-right";
+                "left right";
             gap: 20px;
             height: 95vh;
-            /* Tenta ocupar a altura da tela */
         }
 
         h1 {
-            text-align: center;
             grid-area: header;
-            /* Coloca o H1 na área 'header' do grid */
+            text-align: center;
+            color: var(--c8);
+            font-size: 28px;
+            margin-bottom: 10px;
         }
 
-        /* --- CORREÇÃO AQUI --- */
-        /* Estes são os containers que agrupam seu conteúdo */
         #program-container {
-            grid-area: main-left;
+            grid-area: left;
+            background: var(--c2);
+            border: 1px solid var(--c4);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
         }
 
         #sim-container {
-            grid-area: main-right;
+            grid-area: right;
+            background: var(--c2);
+            border: 1px solid var(--c4);
+            border-radius: 12px;
+            padding: 15px;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
-            /* Impede o container da direita de rolar */
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
         }
 
         textarea {
             width: 100%;
             height: 200px;
-            /* Mais espaço para o código */
             font-family: monospace;
-            margin-bottom: 10px;
-            border: 1px solid #000033;
-            /* Borda azul escura */
+            font-size: 14px;
+            border: 1px solid var(--c5);
+            border-radius: 8px;
+            padding: 8px;
+            background: var(--c1);
             box-sizing: border-box;
-            /* Garante que padding/border não quebre o layout */
+            color: var(--text);
         }
 
         .controls button {
             margin-right: 10px;
-            padding: 6px 12px;
-            /* Botões brancos com borda e texto azul escuro */
-            border: 1px solid #000033;
+            margin-top: 10px;
+            padding: 8px 14px;
+            border: none;
             border-radius: 6px;
-            background-color: #ffffff;
-            color: #000033;
-            cursor: pointer;
+            background-color: var(--c7);
+            color: white;
             font-weight: bold;
-            font-family: "Aptos (Body)", Aptos, sans-serif;
+            cursor: pointer;
+            transition: 0.2s ease;
         }
 
         .controls button:hover {
-            background-color: #f0f0f0;
-            /* Leve mudança ao passar o mouse */
+            background-color: var(--c8);
         }
 
         table {
             border-collapse: collapse;
             margin-top: 10px;
             width: 100%;
-            /* Tabelas ocupam 100% do container */
+            font-size: 14px;
         }
 
-        table,
         th,
         td {
-            border: 1px solid #000033;
-            /* Borda azul escura */
+            border: 1px solid var(--c5);
+            padding: 6px;
+            text-align: center;
         }
 
         th {
-            padding: 5px;
-            text-align: center;
-            /* Header da tabela azul escuro com texto branco */
-            background-color: #000033;
+            background-color: var(--c7);
             color: white;
+            text-transform: uppercase;
+            font-size: 13px;
         }
 
         td {
-            padding: 5px;
-            text-align: center;
-            /* Fundo azul extremamente descreto e translúcido */
-            background: rgba(100, 120, 255, 0.05);
+            background: var(--c1);
         }
 
-        /* --- Mágica para a Tabela de Registradores --- */
         #registers-container {
-            margin-top: 10px;
-            /* Isso faz a tabela de registradores usar o espaço restante */
             flex-grow: 1;
             overflow-y: auto;
-            /* Adiciona scroll SÓ nela, se precisar */
+            margin-top: 10px;
         }
 
-        /* Esconde o header original da tabela (Registrador | Valor) */
-        #registers tr:first-child {
-            display: none;
-        }
-
-        #registers tbody {
-            /* Transforma o corpo da tabela em um grid */
-            display: grid;
-            /* 4 colunas (Reg, Val, Reg, Val, Reg, Val, Reg, Val) */
-            grid-template-columns: repeat(4, auto 1fr);
-            gap: 0px 15px;
-            /* Espaço entre as colunas */
-        }
-
-        #registers tr {
-            /* Faz os <td>s serem filhos diretos do grid */
-            display: contents;
-        }
-
-        /* Recria um header para a tabela em grid */
         #registers-container h3 {
-            display: block;
-            width: 100%;
+            background-color: var(--c7);
+            color: white;
             padding: 5px;
+            border-radius: 6px 6px 0 0;
             margin: 0;
             text-align: center;
-            background-color: #000033;
-            color: white;
-            border: 1px solid #000033;
-            box-sizing: border-box;
-            /* Garante que o padding não quebre o layout */
+        }
+
+        #registers {
+            width: 100%;
+        }
+
+        #metrics th {
+            background-color: var(--c8);
+        }
+
+        select {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--c5);
+            background-color: white;
+            color: var(--text);
+            font-size: 14px;
+            margin-bottom: 10px;
+            cursor: pointer;
         }
     </style>
 </head>
@@ -153,18 +156,19 @@
     <h1>Simulador Pipeline (Arquitetura II)</h1>
 
     <div id="program-container">
+        <h3>Benchmark:</h3>
+        <select id="benchmark-select">
+            <option value="">-- Selecione um benchmark --</option>
+            <option value="alu1">ALU 1 – Somatório simples</option>
+            <option value="alu2">ALU 2 – Operações encadeadas</option>
+            <option value="mem1">MEM 1 – Leitura Sequencial</option>
+            <option value="mem2">MEM 2 – Escrita Sequencial</option>
+            <option value="ctrl1">CTRL 1 – Loop simples (branch taken)</option>
+            <option value="ctrl2">CTRL 2 – Branch alternado (taken/not taken)</option>
+        </select>
+
         <h3>Programa:</h3>
-        <textarea id="program-input">// Exemplo:
-addi x1, x0, 4
-addi x2, x0, 10
-sw x2, 0(x1)
-lw x3, 0(x1)
-add x4, x3, x2
-addi x5, x0, 1
-beq x5, x0, 2
-add x6, x1, x1
-nop
- </textarea>
+        <textarea id="program-input" placeholder="// Código Assembly aqui..."></textarea>
 
         <div class="controls">
             <button id="btn-load">Carregar Programa</button>
@@ -195,7 +199,7 @@ nop
         </table>
 
         <div id="registers-container">
-            <h3>Registradores:</h3>
+            <h3>Registradores</h3>
             <table id="registers">
                 <tr>
                     <th>Registrador</th>
@@ -214,7 +218,6 @@ nop
                 <th>Branch Hits</th>
                 <th>Cache I Hit</th>
                 <th>Cache D Hit</th>
-
             </tr>
             <tr>
                 <td id="metrics-cycles">0</td>
@@ -228,14 +231,72 @@ nop
         </table>
     </div>
 
-
     <script src="simulator.js"></script>
-
     <script>
         let sim = null;
         let running = false;
 
-        // Popula a tabela de registradores (x0–x31)
+        const benchmarks = {
+            alu1: [
+                "addi x1, x0, 10",
+                "addi x2, x0, 0",
+                "add x2, x2, x1",
+                "sub x1, x1, x5",
+                "bne x1, x0, -3",
+                "nop"
+            ],
+            alu2: [
+                "addi x1, x0, 5",
+                "addi x2, x0, 2",
+                "add x3, x1, x2",
+                "sub x4, x3, x1",
+                "xor x5, x3, x4",
+                "or x6, x5, x2",
+                "and x7, x6, x1",
+                "nop"
+            ],
+            mem1: [
+                "addi x1, x0, 0",
+                "lw x2, 0(x1)",
+                "lw x3, 1(x1)",
+                "lw x4, 2(x1)",
+                "lw x5, 3(x1)",
+                "nop"
+            ],
+            mem2: [
+                "addi x1, x0, 0",
+                "addi x2, x0, 5",
+                "sw x2, 0(x1)",
+                "sw x2, 1(x1)",
+                "sw x2, 2(x1)",
+                "sw x2, 3(x1)",
+                "nop"
+            ],
+            ctrl1: [
+                "addi x1, x0, 5",
+                "addi x2, x0, 0",
+                "add x2, x2, x1",
+                "sub x1, x1, x5",
+                "bne x1, x0, -3",
+                "nop"
+            ],
+            ctrl2: [
+                "addi x1, x0, 0",
+                "addi x2, x0, 1",
+                "beq x1, x2, 2",
+                "addi x3, x0, 5",
+                "bne x1, x2, -3",
+                "nop"
+            ]
+        };
+
+        document.getElementById('benchmark-select').addEventListener('change', e => {
+            const val = e.target.value;
+            if (benchmarks[val]) {
+                document.getElementById('program-input').value = benchmarks[val].join("\n");
+            }
+        });
+
         const regsTable = document.getElementById('registers');
         for (let i = 0; i < 32; i++) {
             const row = regsTable.insertRow();
@@ -244,11 +305,9 @@ nop
             row.cells[1].innerText = '0';
         }
 
-        // Botão: Carregar Programa
         document.getElementById('btn-load').addEventListener('click', () => {
             const programText = document.getElementById('program-input').value.trim();
             const program = programText.split('\n').map(line => line.trim()).filter(line => line !== '' && !line.startsWith('//'));
-
             sim = new PipelineSimulator(program, {
                 predictorMode: "onebit",
                 predictorSize: 32,
@@ -264,25 +323,22 @@ nop
             updateUI();
         });
 
-        // Botão: Próximo Ciclo
         document.getElementById('btn-step').addEventListener('click', () => {
             if (!sim) return;
             sim.tick();
             updateUI();
         });
 
-        // Botão: Executar Tudo (com atraso para visualização)
         document.getElementById('btn-run').addEventListener('click', async () => {
             if (!sim) return;
             running = true;
             for (let i = 0; i < 500 && !sim.finished && running; i++) {
                 sim.tick();
                 updateUI();
-                await new Promise(r => setTimeout(r, 150)); // atraso visual
+                await new Promise(r => setTimeout(r, 150));
             }
         });
 
-        // Botão: Resetar
         document.getElementById('btn-reset').addEventListener('click', () => {
             running = false;
             sim = null;
@@ -291,7 +347,6 @@ nop
             document.querySelectorAll('#metrics td').forEach(td => td.innerText = '0');
         });
 
-        // Botão: Exportar CSV
         document.getElementById('btn-export').addEventListener('click', () => {
             if (!sim) {
                 alert("Nenhuma simulação carregada!");
@@ -301,7 +356,6 @@ nop
             alert("Arquivo CSV exportado com sucesso!");
         });
 
-        // Atualiza a interface com o estado do simulador
         function updateUI() {
             if (!sim) return;
             document.getElementById('stage-if').innerText = sim.IF_ID.instr ? sim.IF_ID.instr.opcode : 'nop';
@@ -310,14 +364,10 @@ nop
             document.getElementById('stage-mem').innerText = sim.MEM_WB.instr ? sim.MEM_WB.instr.opcode : 'nop';
             document.getElementById('stage-wb').innerText = sim.MEM_WB.instr ? sim.MEM_WB.instr.opcode : 'nop';
 
-            // Atualiza registradores
-            if (sim.regFile && sim.regFile.regs) {
-                sim.regFile.regs.forEach((val, i) => {
-                    document.getElementById('reg-' + i).innerText = val;
-                });
-            }
+            sim.regFile.regs.forEach((val, i) => {
+                document.getElementById('reg-' + i).innerText = val;
+            });
 
-            // Atualiza métricas
             document.getElementById('metrics-cycles').innerText = sim.cycle;
             const CPI = sim.instructionsCommitted > 0 ? (sim.cycle / sim.instructionsCommitted).toFixed(2) : 0;
             document.getElementById('metrics-cpi').innerText = CPI;
