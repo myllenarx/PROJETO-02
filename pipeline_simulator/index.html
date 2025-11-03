@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Simulador Pipeline – Arquitetura II</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <h1>Simulador Pipeline (Arquitetura II)</h1>
+
+    <div id="program-container">
+        <h3>Benchmark:</h3>
+        <select id="benchmark-select">
+            <option value="">-- Selecione um benchmark --</option>
+            <option value="alu1">ALU 1 – Somatório simples</option>
+            <option value="alu2">ALU 2 – Operações encadeadas</option>
+            <option value="mem1">MEM 1 – Leitura Sequencial</option>
+            <option value="mem2">MEM 2 – Escrita Sequencial</option>
+            <option value="ctrl1">CTRL 1 – Loop simples (branch taken)</option>
+            <option value="ctrl2">CTRL 2 – Branch alternado (taken/not taken)</option>
+        </select>
+
+        <h3>Programa:</h3>
+        <textarea id="program-input" placeholder="// Código Assembly aqui..."></textarea>
+
+        <div class="controls">
+            <button id="btn-load">Carregar Programa</button>
+            <button id="btn-step">Próximo Ciclo</button>
+            <button id="btn-run">Executar Tudo</button>
+            <button id="btn-reset">Resetar</button>
+            <button id="btn-export">Exportar CSV</button>
+        </div>
+    </div>
+
+    <div id="sim-container">
+        <h3>Pipeline (Estado Atual):</h3>
+        <table id="pipeline">
+            <tr>
+                <th>IF</th>
+                <th>ID</th>
+                <th>EX</th>
+                <th>MEM</th>
+                <th>WB</th>
+            </tr>
+            <tr>
+                <td id="stage-if">-</td>
+                <td id="stage-id">-</td>
+                <td id="stage-ex">-</td>
+                <td id="stage-mem">-</td>
+                <td id="stage-wb">-</td>
+            </tr>
+        </table>
+
+        <div id="registers-container">
+            <h3>Registradores</h3>
+            <table id="registers">
+                <tr>
+                    <th>Registrador</th>
+                    <th>Valor</th>
+                </tr>
+            </table>
+        </div>
+
+        <h3>Métricas:</h3>
+        <table id="metrics">
+            <tr>
+                <th>Ciclos</th>
+                <th>CPI</th>
+                <th>Stalls</th>
+                <th>Flushes</th>
+                <th>Branch Hits</th>
+                <th>Cache I Hit%</th>
+                <th>Cache D Hit%</th>
+                <th>MPKI-I</th>
+                <th>MPKI-D</th>
+                <th>AMAT-I</th>
+                <th>AMAT-D</th>
+            </tr>
+            <tr>
+                <td id="metrics-cycles">0</td>
+                <td id="metrics-cpi">0</td>
+                <td id="metrics-stalls">0</td>
+                <td id="metrics-flushes">0</td>
+                <td id="metrics-branch">0</td>
+                <td id="metrics-ci">0</td>
+                <td id="metrics-cd">0</td>
+                <td id="metrics-mpki-i">0</td>
+                <td id="metrics-mpki-d">0</td>
+                <td id="metrics-amat-i">0</td>
+                <td id="metrics-amat-d">0</td>
+            </tr>
+        </table>
+    </div>
+
+    <div id="diagram-container">
+        <h3>Diagrama de Pipeline (Ciclos):</h3>
+        <div id="pipeline-diagram-container">
+            <table id="pipeline-diagram">
+                <thead>
+                    <tr id="pipeline-diagram-header">
+                        <th>Instrução</th>
+                        </tr>
+                </thead>
+                <tbody id="pipeline-diagram-body">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="cache.js"></script>
+    <script src="pipeline.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>

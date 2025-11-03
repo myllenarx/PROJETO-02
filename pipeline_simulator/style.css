@@ -1,0 +1,275 @@
+:root {
+    --c1: #f3f5f8;
+    --c2: #e9edf1;
+    --c3: #d0dee7;
+    --c4: #cad5df;
+    --c5: #b7c6d4;
+    --c6: #9aafc2;
+    --c7: #87a7bb;
+    --c8: #709ab3;
+    --text: #1f2a35;
+    
+    --stage-if: #ffdddd;
+    --stage-id: #ffe7dd;
+    --stage-ex: #fffbdd;
+    --stage-mem: #e0ffdd;
+    --stage-wb: #ddffff;
+    --stage-stall: #ffd4a8;
+    --stage-flush: #ffaaaa;
+    --stage-done: #f0f0f0;
+}
+
+body {
+    font-family: "Segoe UI", Calibri, sans-serif;
+    background-color: var(--c1);
+    color: var(--text);
+    margin: 0;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 1fr 1.5fr;
+    
+    /* ===== CORREÇÃO AQUI ===== */
+    /* Mudei de 'auto 1fr auto' para 'auto auto auto' 
+       Isso impede a linha do meio de esticar sozinha. */
+    grid-template-rows: auto auto auto;
+    
+    grid-template-areas:
+        "header header"
+        "left right"
+        "diagram diagram";
+    gap: 20px;
+    min-height: 95vh; 
+    box-sizing: border-box; 
+}
+
+h1 {
+    grid-area: header;
+    text-align: center;
+    color: var(--c8);
+    font-size: 28px;
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+#program-container {
+    grid-area: left;
+    background: var(--c2);
+    border: 1px solid var(--c4);
+    border-radius: 12px;
+    padding: 15px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    display: flex;
+    flex-direction: column;
+    
+    /* ===== ADIÇÃO AQUI ===== */
+    /* Damos uma altura fixa para este container.
+       Os itens flex (como o textarea) vão crescer para preencher isso. */
+    height: 75vh;
+}
+
+#sim-container {
+    grid-area: right;
+    background: var(--c2);
+    border: 1px solid var(--c4);
+    border-radius: 12px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    overflow: hidden; 
+    
+    /* ===== ADIÇÃO AQUI ===== */
+    /* Mesma altura do container da esquerda para consistência. */
+    height: 75vh;
+}
+
+textarea {
+    width: 100%;
+    flex-grow: 1;
+    min-height: 200px; 
+    font-family: monospace;
+    font-size: 14px;
+    border: 1px solid var(--c5);
+    border-radius: 8px;
+    padding: 8px;
+    background: var(--c1);
+    box-sizing: border-box;
+    color: var(--text);
+}
+
+.controls {
+    margin-top: 10px;
+}
+
+.controls button {
+    margin-right: 10px;
+    margin-top: 10px;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 6px;
+    background-color: var(--c7);
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.2s ease;
+}
+
+.controls button:hover {
+    background-color: var(--c8);
+}
+
+table {
+    border-collapse: collapse;
+    margin-top: 10px;
+    width: 100%;
+    font-size: 14px;
+    table-layout: fixed;
+}
+
+th,
+td {
+    border: 1px solid var(--c5);
+    padding: 6px;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+th {
+    background-color: var(--c7);
+    color: white;
+    text-transform: uppercase;
+    font-size: 13px;
+    position: sticky;
+    top: 0; 
+}
+
+td {
+    background: var(--c1);
+}
+
+#registers-container {
+    flex-grow: 1;
+    overflow-y: auto;
+    margin-top: 10px;
+    border: 1px solid var(--c5);
+    border-radius: 8px;
+}
+
+#registers-container h3 {
+    background-color: var(--c7);
+    color: white;
+    padding: 5px;
+    border-radius: 6px 6px 0 0;
+    margin: 0;
+    text-align: center;
+    position: sticky;
+    top: 0;
+}
+
+#registers {
+    width: 100%;
+    margin-top: 0;
+}
+
+#metrics {
+    table-layout: auto;
+}
+
+#metrics th {
+    background-color: var(--c8);
+    font-size: 12px;
+    padding: 5px 3px;
+}
+#metrics td {
+    font-size: 13px;
+    padding: 5px 3px;
+}
+
+select {
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--c5);
+    background-color: white;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+
+/* ================================== */
+/* === ESTILOS PARA DIAGRAMA === */
+/* ================================== */
+
+#diagram-container {
+    grid-area: diagram;
+    background: var(--c2);
+    border: 1px solid var(--c4);
+    border-radius: 12px;
+    padding: 15px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    max-height: 300px; 
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+#pipeline-diagram-container {
+    width: 100%;
+    overflow-x: auto; /* Rolagem horizontal */
+    flex-grow: 1;
+    border: 1px solid var(--c5);
+    border-radius: 8px;
+}
+
+#pipeline-diagram {
+    width: auto; 
+    min-width: 100%;
+    table-layout: auto; 
+    font-family: monospace;
+    font-size: 13px;
+}
+
+#pipeline-diagram th,
+#pipeline-diagram td {
+    min-width: 50px; 
+    padding: 6px 4px;
+}
+
+#pipeline-diagram th:first-child,
+#pipeline-diagram td:first-child {
+    position: sticky;
+    left: 0;
+    background-color: var(--c6);
+    color: white;
+    min-width: 200px;
+    text-align: left;
+    padding-left: 10px;
+    z-index: 2;
+}
+
+#pipeline-diagram th {
+    background-color: var(--c7);
+    z-index: 1;
+}
+
+/* Cores dos estágios */
+.stage-if { background-color: var(--stage-if); }
+.stage-id { background-color: var(--stage-id); }
+.stage-ex { background-color: var(--stage-ex); }
+.stage-mem { background-color: var(--stage-mem); }
+.stage-wb { background-color: var(--stage-wb); }
+.stage-stall { background-color: var(--stage-stall); font-weight: bold; }
+.stage-freeze { background-color: var(--c5); }
+.stage-flush { background-color: var(--stage-flush); font-weight: bold; }
+.stage-\. { background-color: var(--stage-done); color: #aaa; } /* Concluído */
+.stage-  { background-color: var(--c1); } /* Vazio */
