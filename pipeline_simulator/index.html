@@ -1,116 +1,246 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
-    <meta charset="UTF-8" />
-    <title>Simulador Pipeline – Arquitetura II</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <title>Simulador de Pipeline – Arquitetura II</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Estilos mínimos de segurança caso style.css esteja vazio/ausente -->
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 0; background: #0f1115; color: #eaeef4; }
+    header { padding: 16px 20px; border-bottom: 1px solid #222734; }
+    header h1 { margin: 0; font-size: 20px; }
+    .page { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; }
+    .card { background: #141822; border: 1px solid #1d2331; border-radius: 12px; }
+    .card h3 { margin: 0; padding: 12px 14px; border-bottom: 1px solid #1d2331; font-size: 14px; color: #b6c2e1; }
+    .card .content { padding: 12px 14px; }
+    .controls .row { display: grid; gap: 8px; margin-bottom: 10px; }
+    label { font-size: 12px; color: #9fb0d1; }
+    select, textarea, button { width: 100%; background: #0f1320; color: #eaeef4; border: 1px solid #1d2331; border-radius: 8px; }
+    textarea { min-height: 160px; padding: 10px; resize: vertical; }
+    select, button { height: 36px; }
+    button { cursor: pointer; transition: 0.15s ease; }
+    button:hover { background: #171c2a; }
+    .btns { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #1d2331; padding: 6px 8px; font-size: 13px; }
+    th { text-align: left; color: #9fb0d1; font-weight: 600; }
+    .stage-table td { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .grid { display: grid; gap: 16px; }
+    .grid-cols-2 { grid-template-columns: 1fr 1fr; }
+    .diagram-wrap { overflow-x: auto; border-top-left-radius: 0; }
+    .diagram { width: max-content; border-collapse: separate; border-spacing: 0; }
+    .diagram th, .diagram td { white-space: nowrap; text-align: center; min-width: 52px; }
+    .diagram th:first-child, .diagram td:first-child { text-align: left; min-width: 280px; }
+    /* Cores dos estágios */
+    .stage-if    { background: #1a3a74; }
+    .stage-id    { background: #255a8a; }
+    .stage-ex    { background: #2d7b8a; }
+    .stage-mem   { background: #346f3b; }
+    .stage-wb    { background: #6a3e8e; }
+    .stage-stall { background: #7a2b2b; }
+    .stage-flush { background: #874f2a; }
+    .stage-dot   { color: #8aa3c7; }
+    .muted { color: #a9b8d9; }
+  </style>
 </head>
-
 <body>
-    <h1>Simulador Pipeline (Arquitetura II)</h1>
+  <header>
+    <h1>Simulador de Pipeline (5 estágios) – Arquitetura II</h1>
+  </header>
 
-    <div id="program-container">
-        <h3>Benchmark:</h3>
-        <select id="benchmark-select">
-            <option value="">-- Selecione um benchmark --</option>
-            <option value="alu1">ALU 1 – Somatório simples</option>
-            <option value="alu2">ALU 2 – Operações encadeadas</option>
-            <option value="mem1">MEM 1 – Leitura Sequencial</option>
-            <option value="mem2">MEM 2 – Escrita Sequencial</option>
-            <option value="ctrl1">CTRL 1 – Loop simples (branch taken)</option>
-            <option value="ctrl2">CTRL 2 – Branch alternado (taken/not taken)</option>
-        </select>
-
-        <h3>Programa:</h3>
-        <textarea id="program-input" placeholder="// Código Assembly aqui..."></textarea>
-
-        <div class="controls">
-            <button id="btn-load">Carregar Programa</button>
-            <button id="btn-step">Próximo Ciclo</button>
-            <button id="btn-run">Executar Tudo</button>
-            <button id="btn-reset">Resetar</button>
-            <button id="btn-export">Exportar CSV</button>
+  <main class="page">
+    <!-- COLUNA ESQUERDA: CONTROLES -->
+    <section class="card controls">
+      <h3>Programa & Controles</h3>
+      <div class="content">
+        <div class="row">
+          <label for="benchmark-select">Benchmark</label>
+          <select id="benchmark-select">
+            <option value="alu1">ALU 1 – Loop somatório</option>
+            <option value="alu2">ALU 2 – Operações diversas</option>
+            <option value="mem1">MEM 1 – Load-Use</option>
+            <option value="mem2">MEM 2 – Stores</option>
+            <option value="ctrl1">CTRL 1 – Loop condicional</option>
+            <option value="ctrl2">CTRL 2 – Branches (flush)</option>
+          </select>
         </div>
-    </div>
 
-    <div id="sim-container">
-        <h3>Pipeline (Estado Atual):</h3>
-        <table id="pipeline">
-            <tr>
-                <th>IF</th>
-                <th>ID</th>
-                <th>EX</th>
-                <th>MEM</th>
-                <th>WB</th>
-            </tr>
-            <tr>
-                <td id="stage-if">-</td>
-                <td id="stage-id">-</td>
-                <td id="stage-ex">-</td>
-                <td id="stage-mem">-</td>
-                <td id="stage-wb">-</td>
-            </tr>
-        </table>
+        <div class="row">
+          <label for="program-input">Código do Programa (RISC-V simplificado)</label>
+          <textarea id="program-input" spellcheck="false"></textarea>
+        </div>
 
-        <div id="registers-container">
-            <h3>Registradores</h3>
+        <div class="row btns">
+          <button id="btn-load"  title="Carregar programa">Carregar</button>
+          <button id="btn-step"  title="Executar 1 ciclo">Step</button>
+          <button id="btn-run"   title="Executar contínuo">Run</button>
+          <button id="btn-reset" title="Resetar">Reset</button>
+          <button id="btn-export" title="Exportar métricas CSV">Exportar</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- COLUNA DIREITA: ESTÁGIOS, REGISTRADORES, MÉTRICAS E DIAGRAMA -->
+    <section class="grid">
+      <!-- Estágios atuais -->
+      <div class="card">
+        <h3>Pipeline – Estágio Atual</h3>
+        <div class="content">
+          <table class="stage-table">
+            <thead>
+              <tr>
+                <th style="width:120px;">Estágio</th>
+                <th>Instrução</th>
+              </tr>
+            </thead>
+            <tbody id="pipeline">
+              <tr><td>IF</td><td id="stage-if">-</td></tr>
+              <tr><td>ID</td><td id="stage-id">-</td></tr>
+              <tr><td>EX</td><td id="stage-ex">-</td></tr>
+              <tr><td>MEM</td><td id="stage-mem">-</td></tr>
+              <tr><td>WB</td><td id="stage-wb">-</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Registradores e Métricas -->
+      <div class="grid grid-cols-2">
+        <div class="card">
+          <h3>Registradores (x0–x31)</h3>
+          <div class="content">
             <table id="registers">
+              <!-- linhas criadas pelo main.js -->
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Métricas</h3>
+          <div class="content">
+            <table id="metrics">
+              <tbody>
+                <tr><th>Ciclos</th><td id="metrics-cycles">0</td></tr>
+                <tr><th>CPI</th><td id="metrics-cpi">0</td></tr>
+                <tr><th>Stalls</th><td id="metrics-stalls">0</td></tr>
+                <tr><th>Flushes</th><td id="metrics-flushes">0</td></tr>
+                <tr><th>Branch (ok/total)</th><td id="metrics-branch">0/0</td></tr>
+              </tbody>
+            </table>
+
+            <h3 style="margin-top:14px;">Caches</h3>
+            <table>
+              <thead>
                 <tr>
-                    <th>Registrador</th>
-                    <th>Valor</th>
+                  <th>Nível</th>
+                  <th>Hits</th>
+                  <th>Misses</th>
+                  <th>Hit Rate</th>
                 </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>L1I</td>
+                  <td id="metrics-l1i-hit">0</td>
+                  <td id="metrics-l1i-miss">0</td>
+                  <td id="metrics-l1i-hitrate">0</td>
+                </tr>
+                <tr>
+                  <td>L1D</td>
+                  <td id="metrics-l1d-hit">0</td>
+                  <td id="metrics-l1d-miss">0</td>
+                  <td id="metrics-l1d-hitrate">0</td>
+                </tr>
+                <tr>
+                  <td>L2</td>
+                  <td id="metrics-l2-hit">0</td>
+                  <td id="metrics-l2-miss">0</td>
+                  <td id="metrics-l2-hitrate">0</td>
+                </tr>
+                <tr>
+                  <td>L3</td>
+                  <td id="metrics-l3-hit">0</td>
+                  <td id="metrics-l3-miss">0</td>
+                  <td id="metrics-l3-hitrate">0</td>
+                </tr>
+              </tbody>
             </table>
+
+            <p class="muted" style="margin-top:10px;">
+              Políticas: LRU (substituição), L1D Write-Back/Write-Allocate, L1I Write-Through/Write-Allocate.
+            </p>
+          </div>
         </div>
+      </div>
 
-        <h3>Métricas:</h3>
-        <table id="metrics">
-            <tr>
-                <th>Ciclos</th>
-                <th>CPI</th>
-                <th>Stalls</th>
-                <th>Flushes</th>
-                <th>Branch Hits</th>
-                <th>Cache I Hit%</th>
-                <th>Cache D Hit%</th>
-                <th>MPKI-I</th>
-                <th>MPKI-D</th>
-                <th>AMAT-I</th>
-                <th>AMAT-D</th>
-            </tr>
-            <tr>
-                <td id="metrics-cycles">0</td>
-                <td id="metrics-cpi">0</td>
-                <td id="metrics-stalls">0</td>
-                <td id="metrics-flushes">0</td>
-                <td id="metrics-branch">0</td>
-                <td id="metrics-ci">0</td>
-                <td id="metrics-cd">0</td>
-                <td id="metrics-mpki-i">0</td>
-                <td id="metrics-mpki-d">0</td>
-                <td id="metrics-amat-i">0</td>
-                <td id="metrics-amat-d">0</td>
-            </tr>
-        </table>
-    </div>
-
-    <div id="diagram-container">
-        <h3>Diagrama de Pipeline (Ciclos):</h3>
-        <div id="pipeline-diagram-container">
-            <table id="pipeline-diagram">
-                <thead>
-                    <tr id="pipeline-diagram-header">
-                        <th>Instrução</th>
-                        </tr>
-                </thead>
-                <tbody id="pipeline-diagram-body">
-                    </tbody>
-            </table>
+      <!-- Diagrama de pipeline -->
+      <!-- Diagrama de pipeline -->
+      <div class="card diagram-wrap" id="pipeline-diagram-container">
+        <h3>Diagrama de Pipeline (ciclo a ciclo)</h3>
+        <div class="content" style="padding:0;">
+          <table class="diagram">
+            <thead>
+              <tr id="pipeline-diagram-header">
+                <th>Instrução</th>
+                <!-- “C 0” é adicionado pelo main.js em resetDiagram() -->
+              </tr>
+            </thead>
+            <tbody id="pipeline-diagram-body">
+              <!-- Linhas por instrução são criadas pelo main.js ao carregar o programa -->
+            </tbody>
+          </table>
         </div>
-    </div>
+      </div>
 
-    <script src="cache.js"></script>
-    <script src="pipeline.js"></script>
-    <script src="main.js"></script>
+      <!-- ====================== HIERARQUIA DE MEMÓRIA ====================== -->
+      <section id="memory-hierarchy">
+        <h3>Hierarquia de Memória</h3>
+        <div id="cache-levels">
+          <div class="cache-box" id="L1I-box">
+            <h4>L1I</h4>
+            <p>Hits: <span id="L1I-hits">0</span></p>
+            <p>Misses: <span id="L1I-misses">0</span></p>
+            <p>Taxa de Acerto: <span id="L1I-hitRate">0%</span></p>
+          </div>
+          <div class="cache-box" id="L1D-box">
+            <h4>L1D</h4>
+            <p>Hits: <span id="L1D-hits">0</span></p>
+            <p>Misses: <span id="L1D-misses">0</span></p>
+            <p>Taxa de Acerto: <span id="L1D-hitRate">0%</span></p>
+          </div>
+          <div class="cache-box" id="L2-box">
+            <h4>L2</h4>
+            <p>Hits: <span id="L2-hits">0</span></p>
+            <p>Misses: <span id="L2-misses">0</span></p>
+            <p>Taxa de Acerto: <span id="L2-hitRate">0%</span></p>
+          </div>
+          <div class="cache-box" id="L3-box">
+            <h4>L3</h4>
+            <p>Hits: <span id="L3-hits">0</span></p>
+            <p>Misses: <span id="L3-misses">0</span></p>
+            <p>Taxa de Acerto: <span id="L3-hitRate">0%</span></p>
+          </div>
+          <div class="cache-box dram" id="DRAM-box">
+            <h4>DRAM</h4>
+            <p>Acessos simulados à memória principal</p>
+          </div>
+        </div>
+      </section>
+      <!-- ================================================================== -->
+    </section>
+  </main>
+
+
+  <!-- Ordem dos scripts é importante:
+       1) cache.js: hierarquia de memória (window.MemoryHierarchy)
+       2) pipeline.js: simulador (usa MemoryHierarchy)
+       3) main.js: UI (usa PipelineSimulator exposto em pipeline.js) -->
+  <script src="cache.js"></script>
+  <script src="pipeline.js"></script>
+  <script src="main.js"></script>
+  
 </body>
 </html>
