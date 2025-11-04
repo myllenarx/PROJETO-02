@@ -1,3 +1,7 @@
+// ============================================================
+// pipeline.js – Simulador de pipeline com hierarquia de memória
+// ============================================================
+
 // ===================== UTILITÁRIOS / PARSER =====================
 function isRegisterToken(tok) { return tok && tok.startsWith("x"); }
 function regNum(tok) { return parseInt(tok.substring(1)); }
@@ -8,11 +12,9 @@ function parseInstruction(line, index) {
   let s = line.trim();
   if (s === "" || s.startsWith("#")) return baseInstr;
 
-  // Strip label if it exists
   const labelMatch = s.match(/^(\w+):/);
   if (labelMatch) {
     s = s.substring(labelMatch[0].length).trim();
-    // If the line is just a label, it's a nop
     if (s === "") return baseInstr;
   }
 
@@ -35,478 +37,270 @@ function parseInstruction(line, index) {
       case "beq": case "bne":
         return { ...baseInstr, opcode: op, rs1: regNum(t[1]), rs2: regNum(t[2]), imm: parseInt(t[3]) };
       case "jal":
-        return { ...baseInstr, opcode: op, rd: regNum(t[1]), imm: parseInt(t[2]) }; // imm = target offset (relative)
+        return { ...baseInstr, opcode: op, rd: regNum(t[1]), imm: parseInt(t[2]) };
       case "jalr": {
         const match = t[2].match(/(-?\d+)\(x(\d+)\)/);
         return { ...baseInstr, opcode: op, rd: regNum(t[1]), rs1: parseInt(match[2]), imm: parseInt(match[1]) };
       }
-      case "nop":
       default:
         return { ...baseInstr, opcode: "nop" };
     }
   } catch (e) {
-    console.warn("Falha no parse:", line, e);
+    console.warn("Erro no parse:", line, e);
     return { ...baseInstr, opcode: "nop" };
   }
 }
 
-// ===================== REGISTER FILE & MEMORY =====================
+// ===================== REGISTRADORES E MEMÓRIA =====================
 class RegisterFile {
   constructor() { this.regs = Array(32).fill(0); }
-  read(num) { return num === 0 ? 0 : this.regs[num]; }
-  write(num, value) { if (num !== 0) this.regs[num] = value; }
-  dump() { return this.regs.map((v,i)=>`x${i}=${v}`).join(" "); }
+  read(n) { return n === 0 ? 0 : this.regs[n]; }
+  write(n, v) { if (n !== 0) this.regs[n] = v; }
 }
 
-class Memory {
-  constructor(sizeWords = 4096) { this.data = new Array(sizeWords).fill(0); }
-  load(addrWord) { return this.data[addrWord] || 0; }
-  store(addrWord, value) { this.data[addrWord] = value; }
-}
-
-// ===================== ONE-BIT PREDICTOR =====================
+// ===================== PREDITOR DE DESVIO 1-BIT =====================
 class OneBitPredictor {
-  constructor(size = 64) {
-    this.size = size;
-    this.table = new Uint8Array(size); // 0 -> not-taken, 1 -> taken
-  }
+  constructor(size = 64) { this.size = size; this.table = new Uint8Array(size); }
   index(pc) { return pc & (this.size - 1); }
   predict(pc) { return this.table[this.index(pc)] === 1; }
   update(pc, taken) { this.table[this.index(pc)] = taken ? 1 : 0; }
 }
 
-// ===================== PIPELINE SIMULATOR =====================
+// ============================================================
+// CLASSE PRINCIPAL – PipelineSimulator
+// ============================================================
 class PipelineSimulator {
   constructor(programLines = [], config = {}) {
-    this.program = programLines.map((line, idx) => parseInstruction(line, idx));
+    this.program = programLines.map((line, i) => parseInstruction(line, i));
     this.pc = 0;
-    this.nopInstr = parseInstruction("nop", -1); // Um NOP padrão
+    this.nopInstr = parseInstruction("nop", -1);
 
     this.regFile = new RegisterFile();
-    this.memory = new Memory(config.memorySizeWords || 4096);
 
-    this.cacheI = new AssociativeCache({
-      name: "L1I",
-      sizeWords: config.L1ISizeWords || 256,
-      lineSizeWords: config.L1ILineWords || 4,
-      associativity: config.L1IAssoc || 2,
-      hitTime: config.L1IHit || 1,
-      missPenalty: config.L1IMissPenalty || 10
-    });
-    this.cacheD = new AssociativeCache({
-      name: "L1D",
-      sizeWords: config.L1DSizeWords || 256,
-      lineSizeWords: config.L1DLineWords || 4,
-      associativity: config.L1DAssoc || 2,
-      hitTime: config.L1DHit || 1,
-      missPenalty: config.L1DMissPenalty || 10
-    });
+    // ✅ NOVA HIERARQUIA DE MEMÓRIA (L1, L2, L3, DRAM)
+    this.memoryHierarchy = new MemoryHierarchy();
 
-    this.predictorMode = config.predictorMode || "static";
-    this.predictor = (this.predictorMode === "onebit") ? new OneBitPredictor(config.predictorSize || 64) : null;
+    this.predictor = new OneBitPredictor(config.predictorSize || 32);
 
-    this.IF_ID = { instr: this.nopInstr, pc: 0, predictedFromPC: null, predictedTaken: false };
-    this.ID_EX = { instr: this.nopInstr, pc: 0, rs1Val:0, rs2Val:0 };
-    this.EX_MEM = { instr: this.nopInstr, aluResult: undefined, rd: undefined, rs2Val: undefined };
-    this.MEM_WB = { instr: this.nopInstr, aluResult: undefined, memData: undefined, rd: undefined };
+    // Registradores de pipeline
+    this.IF_ID = { instr: this.nopInstr };
+    this.ID_EX = { instr: this.nopInstr };
+    this.EX_MEM = { instr: this.nopInstr };
+    this.MEM_WB = { instr: this.nopInstr };
 
-    // Sinais de controle para a UI
-    this.stall = false;
-    this.stallCycles = 0;
+    // Controle de estado
     this.lastCommittedInstr = null;
     this.flushedPCs = [];
-    this.isCacheStall = false;
-    this.injectedStall = false;
+    this.stall = false;
+    this.stallCycles = 0;
+    this.jumpPending = false;
 
-    // metrics
-    this.flushes = 0;
+    // Métricas
     this.cycle = 0;
     this.instructionsCommitted = 0;
+    this.flushes = 0;
     this.stallsData = 0;
     this.stallsCache = 0;
     this.branchPredictions = 0;
     this.branchCorrect = 0;
-
     this.finished = false;
   }
 
-  isNOP(instr) { return !instr || instr.opcode === "nop"; }
+  isNOP(i) { return !i || i.opcode === "nop"; }
 
+  // ============================================================
+  // Detecta hazard load-use
+  // ============================================================
   detectLoadUseHazard() {
-    const idInstr = this.IF_ID.instr;
-    const exInstr = this.ID_EX.instr;
-    const memInstr = this.EX_MEM.instr; // Check against instruction in MEM stage as well
-    if (this.isNOP(idInstr)) return false;
+    const id = this.IF_ID.instr;
+    const ex = this.ID_EX.instr;
+    if (this.isNOP(id) || this.isNOP(ex)) return false;
+    if (ex.opcode !== "lw") return false;
 
-    const checkHazard = (stageInstr) => {
-      if (this.isNOP(stageInstr) || stageInstr.opcode !== "lw") return false;
-
-      const reads = [];
-      switch (idInstr.opcode) {
-        case "add": case "sub": case "and": case "or": case "xor": case "slt":
-          reads.push(idInstr.rs1, idInstr.rs2); break;
-        case "addi": case "jalr": case "lw":
-          reads.push(idInstr.rs1); break;
-        case "sw":
-          reads.push(idInstr.rs1, idInstr.rs2); break;
-        case "beq": case "bne":
-          reads.push(idInstr.rs1, idInstr.rs2); break;
-        default:
-          break;
-      }
-      for (let r of reads) {
-        if (r !== undefined && r === stageInstr.rd) return true;
-      }
-      return false;
-    };
-
-    return checkHazard(exInstr) || checkHazard(memInstr);
+    const reads = [];
+    switch (id.opcode) {
+      case "add": case "sub": case "and": case "or": case "xor": reads.push(id.rs1, id.rs2); break;
+      case "addi": case "lw": case "jalr": reads.push(id.rs1); break;
+      case "sw": reads.push(id.rs1, id.rs2); break;
+      case "beq": case "bne": reads.push(id.rs1, id.rs2); break;
+    }
+    return reads.includes(ex.rd);
   }
 
-  getOperandValue(regNum, defaultVal) {
-    if (this.EX_MEM.instr && this.EX_MEM.rd !== undefined && this.EX_MEM.rd === regNum) {
-      if (this.EX_MEM.aluResult !== undefined && this.EX_MEM.instr.opcode !== "lw") {
+    getOperandValue(rn, fallback) {
+    // Forwarding from EX/MEM
+    if (this.EX_MEM && !this.isNOP(this.EX_MEM.instr) && this.EX_MEM.instr.rd === rn)
         return this.EX_MEM.aluResult;
-      }
+    // Forwarding from MEM/WB (use memData if present)
+    if (this.MEM_WB && !this.isNOP(this.MEM_WB.instr) && this.MEM_WB.instr.rd === rn)
+        return (this.MEM_WB.memData != null) ? this.MEM_WB.memData : this.MEM_WB.aluResult;
+    // Fallback: use value captured in ID stage (safer) — se não existir, leia o RegisterFile
+    return (fallback !== undefined) ? fallback : this.regFile.read(rn);
     }
-    if (this.MEM_WB.instr && this.MEM_WB.rd !== undefined && this.MEM_WB.rd === regNum) {
-      if (this.MEM_WB.memData !== undefined) return this.MEM_WB.memData;
-      if (this.MEM_WB.aluResult !== undefined) return this.MEM_WB.aluResult;
-    }
-    return this.regFile.read(regNum);
-  }
 
-  computeTargetFromInstr(pcIndex, instr) {
-    if (!instr) return pcIndex + 1;
-    if (instr.opcode === "beq" || instr.opcode === "bne" || instr.opcode === "jal") {
-      return pcIndex + instr.imm;
-    } else if (instr.opcode === "jalr") {
-      return pcIndex + 1;
-    }
-    return pcIndex + 1;
-  }
 
+
+  // ============================================================
+  // IF – Busca
+  // ============================================================
   doIF() {
-    if (this.stallCycles > 0) {
-        this.isCacheStall = true;
-        return;
-    }
-    if (this.stall) { // load-use stall congela IF e ID
-        this.isCacheStall = true; // Tratar como um "freeze" para a UI
-        return;
-    }
-    
-    const pcIdx = this.pc;
-    if (pcIdx >= this.program.length) {
-        this.IF_ID = { instr: this.nopInstr, pc: pcIdx };
-        return; // PC não incrementa mais, fica parado no fim
-    }
+    if (this.stallCycles > 0 || this.stall) return;
+    if (this.jumpPending) { this.jumpPending = false; return; }
 
-    // 1. Fetch a instrução ATUAL (pcIdx)
-    const res = this.cacheI.readInstr(pcIdx, this.program);
-    if (!res.hit) {
-      this.stallCycles = res.latency;
-      this.stallsCache += res.latency;
-      this.isCacheStall = true;
-      return;
-    }
-    const instrObj = res.instr || this.nopInstr;
-    
-    // 2. Coloca a instrução ATUAL no pipeline
-    // Anotações de predição são adicionadas abaixo
-    this.IF_ID = { instr: instrObj, pc: pcIdx, predictedFromPC: null, predictedTaken: false }; 
+    const pc = this.pc;
+    if (pc >= this.program.length) return;
 
-    // 3. Decide qual será o PRÓXIMO PC
-    let nextPC = pcIdx + 1;
+    // ✅ Atualizado para usar hierarquia de memória
+    const res = this.memoryHierarchy.readInstr(pc);
+    if (!res.hit) { this.stallCycles = res.latency; this.stallsCache += res.latency; return; }
 
-    if (this.predictorMode === "onebit") {
-      if (instrObj && ["beq","bne","jal"].includes(instrObj.opcode)) {
-        const predictTaken = this.predictor.predict(pcIdx);
-        this.branchPredictions++;
-        
-        // Anota a predição NA INSTRUÇÃO que está entrando no pipeline
-        this.IF_ID.predictedFromPC = pcIdx; 
-        this.IF_ID.predictedTaken = predictTaken;
-        
-        if (predictTaken) {
-          nextPC = this.computeTargetFromInstr(pcIdx, instrObj);
-        }
-      }
-    }
-    
-    // 4. Atualiza o PC para a próxima busca
-    this.pc = nextPC;
+    const instr = this.program[pc];
+    this.IF_ID = { instr, pc };
+    this.pc = pc + 1;
   }
 
+  // ============================================================
+  // ID – Decodificação
+  // ============================================================
   doID() {
     if (this.stallCycles > 0) return;
+    const instr = this.IF_ID.instr;
+    if (this.isNOP(instr)) { this.ID_EX = { instr: this.nopInstr }; return; }
 
-    if (this.stall) {
-      this.ID_EX = { instr: this.nopInstr, pc: -1, rs1Val:0, rs2Val:0 }; // Injeta bolha
-      this.stallsData++;
-      this.stall = false;
-      this.injectedStall = true; // Sinaliza para a UI
-      return;
-    }
-
-    const stage = this.IF_ID;
-    if (!stage || !stage.instr) {
-      this.ID_EX = { instr: this.nopInstr };
-      return;
-    }
-    const instr = stage.instr;
-    
-    // Passa a info de predição (que veio do IF_ID) para o ID_EX
-    const idex = { 
-        instr: instr, 
-        pc: stage.pc,
-        predictedFromPC: stage.predictedFromPC,
-        predictedTaken: stage.predictedTaken
+    this.ID_EX = {
+      instr,
+      pc: this.IF_ID.pc,
+      rs1Val: instr.rs1 !== undefined ? this.regFile.read(instr.rs1) : 0,
+      rs2Val: instr.rs2 !== undefined ? this.regFile.read(instr.rs2) : 0
     };
-
-    if (instr.rs1 !== undefined) idex.rs1Val = this.regFile.read(instr.rs1);
-    if (instr.rs2 !== undefined) idex.rs2Val = this.regFile.read(instr.rs2);
-    this.ID_EX = idex;
   }
 
+  // ============================================================
+  // EX – Execução
+  // ============================================================
   doEX() {
-    const stage = this.ID_EX; // 'stage' agora contém a instrução E sua predição
-    if (!stage || !stage.instr) {
-      this.EX_MEM = { instr: this.nopInstr };
-      return;
-    }
-    const instr = stage.instr;
+    const instr = this.ID_EX.instr;
+    if (this.isNOP(instr)) { this.EX_MEM = { instr: this.nopInstr }; return; }
 
-    let op1 = (instr.rs1 !== undefined) ? this.getOperandValue(instr.rs1, stage.rs1Val) : undefined;
-    let op2 = (instr.rs2 !== undefined) ? this.getOperandValue(instr.rs2, stage.rs2Val) : undefined;
+    let op1 = instr.rs1 !== undefined ? this.getOperandValue(instr.rs1, this.ID_EX.rs1Val) : 0;
+    let op2 = instr.rs2 !== undefined ? this.getOperandValue(instr.rs2, this.ID_EX.rs2Val) : 0;
 
-    let aluResult = undefined;
-    let takeBranch = false;
-    let targetPC = null;
+    let alu = 0, takeBranch = false, targetPC = this.pc;
 
     switch (instr.opcode) {
-      case "add": aluResult = op1 + op2; break;
-      case "sub": aluResult = op1 - op2; break;
-      case "and": aluResult = op1 & op2; break;
-      case "or":  aluResult = op1 | op2; break;
-      case "xor": aluResult = op1 ^ op2; break;
-      case "slt": aluResult = (op1 < op2) ? 1 : 0; break;
-      case "addi": aluResult = op1 + instr.imm; break;
-      case "lw": case "sw":
-        aluResult = op1 + instr.imm; break;
-      case "beq":
-        takeBranch = (op1 === op2);
-        targetPC = stage.pc + instr.imm;
-        break;
-      case "bne":
-        takeBranch = (op1 !== op2);
-        targetPC = stage.pc + instr.imm;
-        break;
-      case "jal":
-        aluResult = stage.pc + 1;
-        takeBranch = true;
-        targetPC = stage.pc + instr.imm;
-        break;
-      case "jalr":
-        aluResult = stage.pc + 1;
-        takeBranch = true;
-        targetPC = Math.floor(op1 + instr.imm);
-        break;
-      case "nop":
-      default:
-        break;
+      case "add": alu = op1 + op2; break;
+      case "sub": alu = op1 - op2; break;
+      case "and": alu = op1 & op2; break;
+      case "or":  alu = op1 | op2; break;
+      case "xor": alu = op1 ^ op2; break;
+      case "addi": alu = op1 + instr.imm; break;
+      case "lw": case "sw": alu = op1 + instr.imm; break;
+      case "beq": takeBranch = (op1 === op2); targetPC = this.ID_EX.pc + instr.imm; break;
+      case "bne": takeBranch = (op1 !== op2); targetPC = this.ID_EX.pc + instr.imm; break;
+      case "jal": takeBranch = true; alu = this.ID_EX.pc + 1; targetPC = this.ID_EX.pc + instr.imm; break;
+      case "jalr": takeBranch = true; alu = this.ID_EX.pc + 1; targetPC = (op1 + instr.imm) & ~1; break;
     }
 
-    // Branch resolution & predictor update
+    // Controle de fluxo
+    // -------- substitua o bloco atual de branch handling em doEX() por isto --------
     if (["beq","bne","jal","jalr"].includes(instr.opcode)) {
-      const actualTaken = !!takeBranch;
-      
-      // For unconditional jumps like jal and jalr, we don't use the predictor, but we need to change PC
-      if (instr.opcode === "jal" || instr.opcode === "jalr") {
-          this.flushes++; // Unconditional jumps always flush the pipeline
-          if(!this.isNOP(this.IF_ID.instr)) this.flushedPCs.push(this.IF_ID.instr.pc);
-          if(!this.isNOP(this.ID_EX.instr)) this.flushedPCs.push(this.ID_EX.instr.pc);
-          this.IF_ID = { instr: this.nopInstr, pc:0, predictedFromPC:null, predictedTaken:false };
-          this.ID_EX = { instr: this.nopInstr };
-          this.pc = targetPC;
-      } else if (this.predictorMode === "onebit") {
-        this.predictor.update(stage.pc, actualTaken);
-        
-        let predictedInfo = stage; 
-        
-        if (predictedInfo && predictedInfo.predictedFromPC === stage.pc) { 
-          if (predictedInfo.predictedTaken !== actualTaken) {
-            // MISPREDICT!
-            this.flushes++;
-            if(!this.isNOP(this.IF_ID.instr)) this.flushedPCs.push(this.IF_ID.instr.pc);
-            if(!this.isNOP(this.ID_EX.instr)) this.flushedPCs.push(this.ID_EX.instr.pc);
-            
-            this.IF_ID = { instr: this.nopInstr, pc:0, predictedFromPC:null, predictedTaken:false };
-            this.ID_EX = { instr: this.nopInstr };
-            
-            this.pc = actualTaken ? targetPC : stage.pc + 1;
-          } else {
-            this.branchCorrect++;
-          }
-        } 
-      } else { // Static not-taken
+        const actual = takeBranch;
+        const pcToIndex = this.ID_EX.pc; // pc do branch sendo resolvido
+
+        // use preditor 1-bit
+        const predicted = this.predictor.predict(pcToIndex);
         this.branchPredictions++;
-        if (actualTaken) {
-          this.flushes++;
-          if(!this.isNOP(this.IF_ID.instr)) this.flushedPCs.push(this.IF_ID.instr.pc);
-          if(!this.isNOP(this.ID_EX.instr)) this.flushedPCs.push(this.ID_EX.instr.pc);
-          
-          this.IF_ID = { instr: this.nopInstr, pc:0, predictedFromPC:null, predictedTaken:false };
-          this.ID_EX = { instr: this.nopInstr };
-          this.pc = targetPC;
+
+        if (predicted !== actual) {
+            this.flushes++;
+
+            // salve o pc antes de sobrescrever ID_EX
+            const oldIDEXpc = this.ID_EX.pc;
+
+            this.IF_ID = { instr: this.nopInstr };
+            this.ID_EX = { instr: this.nopInstr };
+            this.pc = actual ? targetPC : (oldIDEXpc + 1);
+            this.jumpPending = true;
+
+            // atualize preditor
+            this.predictor.update(pcToIndex, actual);
         } else {
-          this.branchCorrect++;
+            this.branchCorrect++;
+            // reforça o preditor
+            this.predictor.update(pcToIndex, actual);
         }
-      }
     }
-    this.EX_MEM = { instr: instr, aluResult: aluResult, rd: instr.rd, rs2Val: stage.rs2Val };
+
+
+
+    this.EX_MEM = { instr, aluResult: alu, rd: instr.rd, rs2Val: this.ID_EX.rs2Val };
   }
 
+  // ============================================================
+  // MEM – Acesso à memória
+  // ============================================================
   doMEM() {
-    const stage = this.EX_MEM;
-    if (!stage || !stage.instr) {
-      this.MEM_WB = { instr: this.nopInstr };
-      return;
-    }
-    const instr = stage.instr;
-    let memData = undefined;
+    const instr = this.EX_MEM.instr;
+    if (this.isNOP(instr)) { this.MEM_WB = { instr: this.nopInstr }; return; }
 
+    let memData = null;
     if (instr.opcode === "lw") {
-      const addr = stage.aluResult;
-      const res = this.cacheD.read(addr, this.memory);
-      if (!res.hit) {
-        this.stallCycles = res.latency;
-        this.stallsCache += res.latency;
-        this.isCacheStall = true;
-        return;
-      }
+      const res = this.memoryHierarchy.readData(this.EX_MEM.aluResult);
+      if (!res.hit) { this.stallCycles = res.latency; this.stallsCache += res.latency; return; }
       memData = res.value;
     } else if (instr.opcode === "sw") {
-      const addr = stage.aluResult;
-      const valueToStore = this.getOperandValue(instr.rs2, stage.rs2Val);
-      const res = this.cacheD.write(addr, valueToStore, this.memory);
-      if (!res.hit) {
-        this.stallCycles = res.latency;
-        this.stallsCache += res.latency;
-        this.isCacheStall = true;
-        return;
-      }
+      const res = this.memoryHierarchy.writeData(this.EX_MEM.aluResult, this.EX_MEM.rs2Val);
+      if (!res.hit) { this.stallCycles = res.latency; this.stallsCache += res.latency; return; }
     }
-    this.MEM_WB = { instr: instr, aluResult: stage.aluResult, memData: memData, rd: stage.rd };
+
+    this.MEM_WB = { instr, aluResult: this.EX_MEM.aluResult, memData, rd: instr.rd };
   }
 
+  // ============================================================
+  // WB – Write Back
+  // ============================================================
   doWB() {
-    const stage = this.MEM_WB;
-    this.lastCommittedInstr = stage.instr; // Salva para a UI
-    
-    if (!stage || !stage.instr || this.isNOP(stage.instr)) {
-        this.MEM_WB = { instr: this.nopInstr };
-        return;
-    }
-    
-    const instr = stage.instr;
+    const instr = this.MEM_WB.instr;
+    this.lastCommittedInstr = instr;
+    if (this.isNOP(instr)) return;
+
     switch (instr.opcode) {
-      case "add": case "sub": case "and": case "or": case "xor": case "slt": case "addi":
-        this.regFile.write(instr.rd, stage.aluResult); this.instructionsCommitted++; break;
+      case "add": case "sub": case "and": case "or": case "xor":
+      case "addi": case "jal": case "jalr":
+        this.regFile.write(instr.rd, this.MEM_WB.aluResult); break;
       case "lw":
-        this.regFile.write(instr.rd, stage.memData); this.instructionsCommitted++; break;
-      case "jal": case "jalr":
-        this.regFile.write(instr.rd, stage.aluResult); this.instructionsCommitted++; break;
-      case "sw": 
-      case "beq": 
-      case "bne":
-        this.instructionsCommitted++; 
-        break;
-      default:
-        // nop não conta
-        break;
+        this.regFile.write(instr.rd, this.MEM_WB.memData); break;
     }
-    this.MEM_WB = { instr: this.nopInstr };
+    this.instructionsCommitted++;
   }
 
-  // =============================================
-  // ========= FUNÇÃO tick() CORRIGIDA =========
-  // =============================================
+  // ============================================================
+  // Tick (um ciclo)
+  // ============================================================
   tick() {
     if (this.finished) return;
     this.cycle++;
-
-    // Limpa flags de UI
     this.lastCommittedInstr = null;
     this.flushedPCs = [];
-    this.isCacheStall = false;
-    this.injectedStall = false;
-    
-    this.doWB(); // Sempre roda
 
-    // Se houver um stall de cache
-    if (this.stallCycles > 0) {
-      this.stallCycles--;
-      this.isCacheStall = true; // Sinaliza para a UI
-      // ===== CORREÇÃO =====
-      // REMOVEMOS O 'return;' DAQUI.
-      // Isso permite que 'doMEM' e 'doEX' executem.
-      // 'doID' e 'doIF' já têm suas próprias verificações para 'stallCycles' e vão parar.
-    }
+    this.doWB();
+    if (this.stallCycles > 0) { this.stallCycles--; return; }
 
     this.doMEM();
     this.doEX();
-    
-    // Detecta stall de load-use APÓS EX (onde o lw foi processado)
-    if (this.detectLoadUseHazard()) {
-      this.stall = true; // 'stall' congela IF e ID
-    }
-    
-    this.doID(); // Esta função já verifica 'this.stall' e 'this.stallCycles'
-    this.doIF(); // Esta função já verifica 'this.stall' e 'this.stallCycles'
 
-    const pipelineEmpty = this.isNOP(this.IF_ID.instr) && this.isNOP(this.ID_EX.instr) && this.isNOP(this.EX_MEM.instr) && this.isNOP(this.MEM_WB.instr) && this.isNOP(this.lastCommittedInstr);
-    const noMoreInstructions = (this.pc >= this.program.length);
-    if (pipelineEmpty && noMoreInstructions) this.finished = true;
-  }
+    if (this.detectLoadUseHazard()) { this.stall = true; this.stallsData++; }
+    else this.stall = false;
 
-  exportMetricsCSV() {
-    const header = [
-        "cycles","instructionsCommitted","CPI","stallsData","stallsCache","flushes",
-        "branchPredictions","branchCorrect","branchAccuracy",
-        "L1I_hits","L1I_misses", "L1I_hitRate", "MPKI-I", "AMAT-I",
-        "L1D_hits","L1D_misses", "L1D_hitRate", "MPKI-D", "AMAT-D"
-    ];
-    
-    const cycles = this.cycle;
-    const instr = this.instructionsCommitted || 0;
-    const cpi = instr ? (cycles / instr).toFixed(4) : "0";
-    const branchAcc = this.branchPredictions ? (this.branchCorrect / this.branchPredictions).toFixed(4) : "0";
-    const kiloInstructions = instr / 1000;
+    this.doID();
+    this.doIF();
 
-    const statsI = this.cacheI.stats();
-    const missRateI = 1.0 - statsI.hitRate;
-    const amat_i = (this.cacheI.hitTime + (missRateI * this.cacheI.missPenalty)).toFixed(4);
-    const mpki_i = kiloInstructions > 0 ? (this.cacheI.misses / kiloInstructions).toFixed(4) : "0";
-    
-    const statsD = this.cacheD.stats();
-    const missRateD = 1.0 - statsD.hitRate;
-    const amat_d = (this.cacheD.hitTime + (missRateD * this.cacheD.missPenalty)).toFixed(4);
-    const mpki_d = kiloInstructions > 0 ? (this.cacheD.misses / kiloInstructions).toFixed(4) : "0";
-
-    const values = [
-      cycles, instr, cpi,
-      this.stallsData, this.stallsCache, this.flushes,
-      this.branchPredictions, this.branchCorrect, branchAcc,
-      this.cacheI.hits, this.cacheI.misses, statsI.hitRate.toFixed(4), mpki_i, amat_i,
-      this.cacheD.hits, this.cacheD.misses, statsD.hitRate.toFixed(4), mpki_d, amat_d
-    ];
-    
-    const csv = header.join(";") + "\n" + values.join(";");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "metrics.csv"; a.click();
-    URL.revokeObjectURL(url);
+    const empty = [this.IF_ID, this.ID_EX, this.EX_MEM, this.MEM_WB].every(s => this.isNOP(s.instr));
+    if (empty && this.pc >= this.program.length) this.finished = true;
   }
 }
+
+// ============================================================
+// Exporta globalmente
+// ============================================================
+window.PipelineSimulator = PipelineSimulator;
