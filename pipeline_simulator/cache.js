@@ -25,54 +25,41 @@ class AssociativeCache {
     this.writePolicy = writePolicy;
     this.allocatePolicy = allocatePolicy;
 
-    // --- validação e configuração de geometria da cache ---
+    // Cálculo da geometria
     this.numSets = Math.floor(sizeWords / (lineSizeWords * associativity));
-
-    // validação básica: numSets deve ser >= 1
     if (this.numSets < 1) {
-    throw new Error(`${this.name}: invalid cache geometry — computed numSets < 1. ` +
-                    `Verifique sizeWords (${sizeWords}), lineSizeWords (${lineSizeWords}) e associativity (${associativity}).`);
+      throw new Error(`${this.name}: invalid cache geometry`);
     }
 
-    // utilitário: potência de 2
-    const isPowerOfTwo = (n) => (Number.isInteger(n) && n > 0 && (n & (n - 1)) === 0);
-
-    // recomende (warn) potências de 2 para operações bitwise corretas
+    // Função utilitária: verificar potência de 2
+    const isPowerOfTwo = n => (Number.isInteger(n) && n > 0 && (n & (n - 1)) === 0);
     if (!isPowerOfTwo(lineSizeWords) || !isPowerOfTwo(this.numSets)) {
-    console.warn(`${this.name}: recommended that lineSizeWords (${lineSizeWords}) and numSets (${this.numSets}) ` +
-                `are powers of two. decodeAddress uses bit-shifts/masks and may behave unexpectedly otherwise.`);
+      console.warn(`${this.name}: recommended power-of-two config (lineSizeWords=${lineSizeWords}, numSets=${this.numSets})`);
     }
 
-    // calcule e armazene os deslocamentos (bits) para uso posterior
     this.offsetBits = Math.log2(this.lineSizeWords) | 0;
-    this.indexBits  = Math.log2(this.numSets) | 0;
+    this.indexBits = Math.log2(this.numSets) | 0;
 
-    // inicializa as sets (agora que numSets foi validado)
+    // Inicializa sets e estatísticas
     this.sets = Array.from({ length: this.numSets }, () => []);
-
-
-    // Estatísticas
     this.hits = 0;
     this.misses = 0;
     this.accesses = 0;
+
+    this.nextLevel = null;
   }
 
   // ==========================================================
-  // Mapeamento: TAG, INDEX, OFFSET
+  // Mapeamento de endereço
   // ==========================================================
-    decodeAddress(addrWord) {
-    // usa os bits pré-calculados (garante consistência e evita (Math.log2) em cada acesso)
+  decodeAddress(addrWord) {
     const offset = addrWord & ((1 << this.offsetBits) - 1);
-    const index  = (addrWord >> this.offsetBits) & ((1 << this.indexBits) - 1);
-    const tag    = addrWord >> (this.offsetBits + this.indexBits);
+    const index = (addrWord >> this.offsetBits) & ((1 << this.indexBits) - 1);
+    const tag = addrWord >> (this.offsetBits + this.indexBits);
     return { tag, index, offset };
-    }
+  }
 
-  // ==========================================================
-  // Política de substituição LRU
-  // ==========================================================
   touchLine(set, line) {
-    // Move linha usada para frente (mais recente)
     const idx = set.indexOf(line);
     if (idx >= 0) {
       set.splice(idx, 1);
@@ -81,7 +68,6 @@ class AssociativeCache {
   }
 
   evictLRU(set) {
-    // Remove a menos usada (última posição)
     return set.pop();
   }
 
@@ -103,27 +89,25 @@ class AssociativeCache {
 
     // MISS
     this.misses++;
-    let totalLatency = this.hitTime + this.missPenalty;
     let value = 0;
+    let latency = this.hitTime + this.missPenalty;
 
-    // Busca no próximo nível, se existir
     if (nextLevel) {
       const res = nextLevel.read(addrWord, nextLevel.nextLevel);
-      totalLatency = this.hitTime + res.latency;
+      latency += res.latency;
       value = res.value;
     }
 
-    // Substituição LRU
     const newLine = { tag, valid: true, dirty: false, data: [value] };
     if (set.length >= this.associativity) {
       const victim = this.evictLRU(set);
-      // Write-back: envia dado sujo ao nível inferior
-      if (victim.dirty && this.writePolicy === "WB" && nextLevel) {
+      if (victim?.dirty && this.writePolicy === "WB" && nextLevel) {
         nextLevel.writeBack(victim.tag, index, victim.data[0]);
       }
     }
+
     set.unshift(newLine);
-    return { hit: false, latency: totalLatency, value, level: this.name };
+    return { hit: false, latency, value, level: this.name };
   }
 
   // ==========================================================
@@ -147,66 +131,50 @@ class AssociativeCache {
 
     // MISS
     this.misses++;
-    let totalLatency = this.hitTime + this.missPenalty;
+    let latency = this.hitTime + this.missPenalty;
 
-    // Write-allocate: traz linha e grava nela
     if (this.allocatePolicy === "WA" && nextLevel) {
-    // lê do nível inferior (para simular alocação da linha)
-    const res = nextLevel.read(addrWord, nextLevel.nextLevel);
-    totalLatency += res.latency;
+      const res = nextLevel.read(addrWord, nextLevel.nextLevel);
+      latency += res.latency;
+      const newLine = { tag, valid: true, dirty: this.writePolicy === "WB", data: [value] };
 
-    // cria a nova linha com o valor atualizado
-    const newLine = { tag, valid: true, dirty: this.writePolicy === "WB", data: [value] };
-
-    // se o conjunto estiver cheio, evict LRU com write-back se necessário
-    if (set.length >= this.associativity) {
+      if (set.length >= this.associativity) {
         const victim = this.evictLRU(set);
-        if (victim && victim.dirty && this.writePolicy === "WB" && nextLevel) {
-        nextLevel.writeBack(victim.tag, index, victim.data[0]);
+        if (victim?.dirty && this.writePolicy === "WB" && nextLevel) {
+          nextLevel.writeBack(victim.tag, index, victim.data[0]);
         }
-    }
+      }
 
-    // insere a nova linha como a mais recentemente usada
-    set.unshift(newLine);
+      set.unshift(newLine);
     } else if (nextLevel) {
-    // Write-no-allocate: escreve diretamente no nível inferior
-    nextLevel.write(addrWord, value, nextLevel.nextLevel);
-    }
-    else if (nextLevel) {
-      // Write-no-allocate
       nextLevel.write(addrWord, value, nextLevel.nextLevel);
     }
 
-    return { hit: false, latency: totalLatency, level: this.name };
+    return { hit: false, latency, level: this.name };
   }
 
   // ==========================================================
-  // Escrita via write-back (vítima suja)
+  // Escrita via write-back
   // ==========================================================
   writeBack(tag, index, value) {
     const addrWord = ((tag << this.indexBits) | index) * this.lineSizeWords;
     if (this.nextLevel) {
-        this.nextLevel.write(addrWord, value, this.nextLevel.nextLevel);
-    } else {
-        // se não houver nextLevel, escreva aqui (DRAM normalmente)
-        this.write(addrWord, value, null);
+      this.nextLevel.write(addrWord, value, this.nextLevel.nextLevel);
     }
-   }
-
+  }
 
   // ==========================================================
   // Estatísticas
   // ==========================================================
   stats() {
     const hitRate = this.accesses ? this.hits / this.accesses : 1;
-    const missRate = 1 - hitRate;
     return {
       name: this.name,
       accesses: this.accesses,
       hits: this.hits,
       misses: this.misses,
-      hitRate,
-      missRate
+      hitRate: (hitRate * 100).toFixed(2),
+      missRate: ((1 - hitRate) * 100).toFixed(2)
     };
   }
 }
@@ -217,17 +185,31 @@ class AssociativeCache {
 class MainMemory {
   constructor(latency = 50) {
     this.latency = latency;
-    this.storage = new Map(); // Simples, mapeia endereços → valores
+    this.storage = new Map();
+    this.accesses = 0;
   }
 
   read(addrWord) {
+    this.accesses++;
     const value = this.storage.get(addrWord) || 0;
     return { hit: true, latency: this.latency, value, level: "DRAM" };
   }
 
   write(addrWord, value) {
+    this.accesses++;
     this.storage.set(addrWord, value);
     return { hit: true, latency: this.latency, level: "DRAM" };
+  }
+
+  stats() {
+    return {
+      name: "DRAM",
+      accesses: this.accesses,
+      hits: this.accesses,
+      misses: 0,
+      hitRate: "100.00",
+      missRate: "0.00"
+    };
   }
 }
 
@@ -282,40 +264,31 @@ class MemoryHierarchy {
 
     this.DRAM = new MainMemory(50);
 
-    // Ligações hierárquicas (em cascata)
+    // Ligações hierárquicas
     this.L1I.nextLevel = this.L2;
     this.L1D.nextLevel = this.L2;
     this.L2.nextLevel = this.L3;
     this.L3.nextLevel = this.DRAM;
   }
 
-  // ==========================================================
-  // Interfaces simples para o pipeline
-  // ==========================================================
-  readInstr(addrWord) {
-    return this.L1I.read(addrWord, this.L1I.nextLevel);
-  }
+  readInstr(addrWord) { return this.L1I.read(addrWord, this.L1I.nextLevel); }
+  readData(addrWord) { return this.L1D.read(addrWord, this.L1D.nextLevel); }
+  writeData(addrWord, value) { return this.L1D.write(addrWord, value, this.L1D.nextLevel); }
 
-  readData(addrWord) {
-    return this.L1D.read(addrWord, this.L1D.nextLevel);
-  }
-
-  writeData(addrWord, value) {
-    return this.L1D.write(addrWord, value, this.L1D.nextLevel);
-  }
-
+  // ✅ Retorna todas as estatísticas juntas
   stats() {
     return [
       this.L1I.stats(),
       this.L1D.stats(),
       this.L2.stats(),
-      this.L3.stats()
+      this.L3.stats(),
+      this.DRAM.stats()
     ];
   }
 }
 
 // ==========================================================
-// Exporta globalmente (para uso no navegador)
+// Exporta globalmente
 // ==========================================================
 window.AssociativeCache = AssociativeCache;
 window.MemoryHierarchy = MemoryHierarchy;

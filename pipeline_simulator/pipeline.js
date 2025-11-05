@@ -76,10 +76,7 @@ class PipelineSimulator {
     this.nopInstr = parseInstruction("nop", -1);
 
     this.regFile = new RegisterFile();
-
-    // ✅ NOVA HIERARQUIA DE MEMÓRIA (L1, L2, L3, DRAM)
     this.memoryHierarchy = new MemoryHierarchy();
-
     this.predictor = new OneBitPredictor(config.predictorSize || 32);
 
     // Registradores de pipeline
@@ -109,38 +106,6 @@ class PipelineSimulator {
   isNOP(i) { return !i || i.opcode === "nop"; }
 
   // ============================================================
-  // Detecta hazard load-use
-  // ============================================================
-  detectLoadUseHazard() {
-    const id = this.IF_ID.instr;
-    const ex = this.ID_EX.instr;
-    if (this.isNOP(id) || this.isNOP(ex)) return false;
-    if (ex.opcode !== "lw") return false;
-
-    const reads = [];
-    switch (id.opcode) {
-      case "add": case "sub": case "and": case "or": case "xor": reads.push(id.rs1, id.rs2); break;
-      case "addi": case "lw": case "jalr": reads.push(id.rs1); break;
-      case "sw": reads.push(id.rs1, id.rs2); break;
-      case "beq": case "bne": reads.push(id.rs1, id.rs2); break;
-    }
-    return reads.includes(ex.rd);
-  }
-
-    getOperandValue(rn, fallback) {
-    // Forwarding from EX/MEM
-    if (this.EX_MEM && !this.isNOP(this.EX_MEM.instr) && this.EX_MEM.instr.rd === rn)
-        return this.EX_MEM.aluResult;
-    // Forwarding from MEM/WB (use memData if present)
-    if (this.MEM_WB && !this.isNOP(this.MEM_WB.instr) && this.MEM_WB.instr.rd === rn)
-        return (this.MEM_WB.memData != null) ? this.MEM_WB.memData : this.MEM_WB.aluResult;
-    // Fallback: use value captured in ID stage (safer) — se não existir, leia o RegisterFile
-    return (fallback !== undefined) ? fallback : this.regFile.read(rn);
-    }
-
-
-
-  // ============================================================
   // IF – Busca
   // ============================================================
   doIF() {
@@ -150,7 +115,7 @@ class PipelineSimulator {
     const pc = this.pc;
     if (pc >= this.program.length) return;
 
-    // ✅ Atualizado para usar hierarquia de memória
+    // ✅ Acesso à cache de instruções (L1I)
     const res = this.memoryHierarchy.readInstr(pc);
     if (!res.hit) { this.stallCycles = res.latency; this.stallsCache += res.latency; return; }
 
@@ -182,16 +147,15 @@ class PipelineSimulator {
     const instr = this.ID_EX.instr;
     if (this.isNOP(instr)) { this.EX_MEM = { instr: this.nopInstr }; return; }
 
-    let op1 = instr.rs1 !== undefined ? this.getOperandValue(instr.rs1, this.ID_EX.rs1Val) : 0;
-    let op2 = instr.rs2 !== undefined ? this.getOperandValue(instr.rs2, this.ID_EX.rs2Val) : 0;
-
+    let op1 = instr.rs1 !== undefined ? this.regFile.read(instr.rs1) : 0;
+    let op2 = instr.rs2 !== undefined ? this.regFile.read(instr.rs2) : 0;
     let alu = 0, takeBranch = false, targetPC = this.pc;
 
     switch (instr.opcode) {
       case "add": alu = op1 + op2; break;
       case "sub": alu = op1 - op2; break;
       case "and": alu = op1 & op2; break;
-      case "or":  alu = op1 | op2; break;
+      case "or": alu = op1 | op2; break;
       case "xor": alu = op1 ^ op2; break;
       case "addi": alu = op1 + instr.imm; break;
       case "lw": case "sw": alu = op1 + instr.imm; break;
@@ -201,37 +165,23 @@ class PipelineSimulator {
       case "jalr": takeBranch = true; alu = this.ID_EX.pc + 1; targetPC = (op1 + instr.imm) & ~1; break;
     }
 
-    // Controle de fluxo
-    // -------- substitua o bloco atual de branch handling em doEX() por isto --------
-    if (["beq","bne","jal","jalr"].includes(instr.opcode)) {
-        const actual = takeBranch;
-        const pcToIndex = this.ID_EX.pc; // pc do branch sendo resolvido
+    // Preditor 1-bit
+    if (["beq", "bne", "jal", "jalr"].includes(instr.opcode)) {
+      const actual = takeBranch;
+      const pcIndex = this.ID_EX.pc;
+      const predicted = this.predictor.predict(pcIndex);
+      this.branchPredictions++;
 
-        // use preditor 1-bit
-        const predicted = this.predictor.predict(pcToIndex);
-        this.branchPredictions++;
+      if (predicted !== actual) {
+        this.flushes++;
+        this.IF_ID = { instr: this.nopInstr };
+        this.ID_EX = { instr: this.nopInstr };
+        this.pc = actual ? targetPC : (pcIndex + 1);
+        this.jumpPending = true;
+      } else this.branchCorrect++;
 
-        if (predicted !== actual) {
-            this.flushes++;
-
-            // salve o pc antes de sobrescrever ID_EX
-            const oldIDEXpc = this.ID_EX.pc;
-
-            this.IF_ID = { instr: this.nopInstr };
-            this.ID_EX = { instr: this.nopInstr };
-            this.pc = actual ? targetPC : (oldIDEXpc + 1);
-            this.jumpPending = true;
-
-            // atualize preditor
-            this.predictor.update(pcToIndex, actual);
-        } else {
-            this.branchCorrect++;
-            // reforça o preditor
-            this.predictor.update(pcToIndex, actual);
-        }
+      this.predictor.update(pcIndex, actual);
     }
-
-
 
     this.EX_MEM = { instr, aluResult: alu, rd: instr.rd, rs2Val: this.ID_EX.rs2Val };
   }
@@ -275,6 +225,23 @@ class PipelineSimulator {
   }
 
   // ============================================================
+  // Estatísticas gerais
+  // ============================================================
+  getStats() {
+    return {
+      cycles: this.cycle,
+      instructions: this.instructionsCommitted,
+      CPI: this.instructionsCommitted ? this.cycle / this.instructionsCommitted : 0,
+      flushes: this.flushes,
+      stallsData: this.stallsData,
+      stallsCache: this.stallsCache,
+      branchPredictions: this.branchPredictions,
+      branchCorrect: this.branchCorrect,
+      caches: this.memoryHierarchy.stats()
+    };
+  }
+
+  // ============================================================
   // Tick (um ciclo)
   // ============================================================
   tick() {
@@ -288,10 +255,6 @@ class PipelineSimulator {
 
     this.doMEM();
     this.doEX();
-
-    if (this.detectLoadUseHazard()) { this.stall = true; this.stallsData++; }
-    else this.stall = false;
-
     this.doID();
     this.doIF();
 
@@ -301,6 +264,6 @@ class PipelineSimulator {
 }
 
 // ============================================================
-// Exporta globalmente
+// Exporta globalmenteFF
 // ============================================================
 window.PipelineSimulator = PipelineSimulator;

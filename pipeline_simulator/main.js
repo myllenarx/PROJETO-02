@@ -1,404 +1,300 @@
-// ==============================
-// main.js – UI do simulador
-// ==============================
-
+// main.js — controlador da UI
 let sim = null;
 let running = false;
 
-// Histórico por instrução (uma linha por PC do programa “visível”)
-// Cada entrada: { pc, row, cycles: [" ", "IF", "ID", ...] }
-let pipelineHistory = [];
-
-// ------------------------------
-// Benchmarks (iguais aos que você já usava)
-// ------------------------------
-const benchmarks = {
-  alu1: [
-    "addi x1, x0, 10", // pc 0
-    "addi x2, x0, 0",  // pc 1
-    "addi x5, x0, 1",  // pc 2
-    "loop:",
-    "add x2, x2, x1",  // pc 3
-    "sub x1, x1, x5",  // pc 4
-    "bne x1, x0, -2",  // pc 5 -> volta para pc 3
-    "nop"              // pc 6
-  ],
-  alu2: [
-    "addi x1, x0, 5",
-    "addi x2, x0, 2",
-    "add x3, x1, x2",
-    "sub x4, x3, x1",
-    "xor x5, x3, x4",
-    "or x6, x5, x2",
-    "and x7, x6, x1",
-    "nop"
-  ],
-  mem1: [
-    "addi x1, x0, 0",
-    "lw x2, 0(x1)",
-    "add x3, x2, x2", // Stall (Load-Use)
-    "lw x4, 1(x1)",
-    "add x5, x4, x4", // Stall (Load-Use)
-    "nop"
-  ],
-  mem2: [
-    "addi x1, x0, 0",
-    "addi x2, x0, 5",
-    "sw x2, 0(x1)",
-    "sw x2, 1(x1)",
-    "sw x2, 2(x1)",
-    "sw x2, 3(x1)",
-    "nop"
-  ],
-  ctrl1: [
-    "addi x1, x0, 3", // Loop 3 vezes
-    "addi x5, x0, 1",
-    "loop_ctrl:",
-    "sub x1, x1, x5", // pc 2
-    "bne x1, x0, -1", // pc 3 -> volta para pc 2
-    "nop"
-  ],
-  ctrl2: [
-    "addi x1, x0, 0",
-    "addi x2, x0, 1",
-    "beq x1, x2, 2", // Not-taken
-    "addi x3, x0, 5",
-    "bne x1, x2, -3", // Taken (flush)
-    "nop"
-  ]
-};
-
-// ------------------------------
-// Utilitários DOM seguros (não quebram se id não existir)
-// ------------------------------
-function $(id) { return document.getElementById(id); }
-function setText(id, value) { const el = $(id); if (el) el.innerText = value; }
-function appendHeaderCycle(cycle) {
-  const hdr = $("pipeline-diagram-header");
-  if (!hdr) return;
-  const th = hdr.insertCell();
-  th.innerText = `C ${cycle}`;
-}
-function resetDiagram() {
-  const body = $("pipeline-diagram-body");
-  const header = $("pipeline-diagram-header");
-  if (body) body.innerHTML = "";
-  if (header) { header.innerHTML = "<th>Instrução</th>"; appendHeaderCycle(0); }
-  pipelineHistory = [];
+// popula tabela de registradores
+const regsTbody = document.querySelector("#registers tbody");
+for (let i = 0; i < 32; i++) {
+  const tr = document.createElement("tr");
+  const tdName = document.createElement("td");
+  tdName.innerText = "x" + i;
+  const tdVal = document.createElement("td");
+  tdVal.id = "reg-" + i;
+  tdVal.innerText = "0";
+  tr.appendChild(tdName);
+  tr.appendChild(tdVal);
+  regsTbody.appendChild(tr);
 }
 
-// ------------------------------
-// Monta a tabela de registradores
-// ------------------------------
-(function buildRegs() {
-  const tbl = $("registers");
-  if (!tbl) return;
-  // Evita duplicar ao recarregar a página
-  if (tbl.rows.length > 0) return;
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  for (let i = 0; i < 32; i++) {
-    const row = tbl.insertRow();
-    const c0 = row.insertCell(); c0.innerText = `x${i}`;
-    const c1 = row.insertCell(); c1.id = `reg-${i}`; c1.innerText = "0";
-  }
-})();
+function programFromTextarea() {
+  const raw = document.getElementById("program-input").value;
+  return raw.split(/\r?\n/).map(l => l.trim()).filter(l => l !== "" && !l.startsWith("//"));
+}
 
-// ------------------------------
-// Eventos básicos
-// ------------------------------
-const sel = $("benchmark-select");
-if (sel) {
-  sel.addEventListener("change", e => {
-    const key = e.target.value;
-    const prog = benchmarks[key];
-    if (prog && $("program-input")) $("program-input").value = prog.join("\n");
+// ----- DIAGRAMA -----
+function resetDiagram(program) {
+  const header = document.getElementById("pipeline-diagram-header");
+  const body = document.getElementById("pipeline-diagram-body");
+  header.innerHTML = "<th>Instrução</th>";
+  body.innerHTML = "";
+  // cria linhas
+  program.forEach((line, i) => {
+    const row = document.createElement("tr");
+    const instrCell = document.createElement("td");
+    instrCell.textContent = line;
+    row.appendChild(instrCell);
+    body.appendChild(row);
+  });
+  // adiciona coluna C0
+  addCycleToDiagram({ cycle: 0, program: program.map((l, idx) => ({ raw: l, pc: idx })) });
+}
+
+function addCycleToDiagram(simInstance) {
+  // cabeçalho
+  const header = document.getElementById("pipeline-diagram-header");
+  const body = document.getElementById("pipeline-diagram-body");
+  const th = document.createElement("th");
+  th.textContent = "C" + simInstance.cycle;
+  header.appendChild(th);
+
+  const rows = body.querySelectorAll("tr");
+  rows.forEach((row, idx) => {
+    const td = document.createElement("td");
+    let stage = "";
+    // tenta identificar em qual estágio a instrução de pc == idx está
+    const instrAtIdx = sim && sim.program && sim.program[idx] ? sim.program[idx] : null;
+    if (sim && sim.IF_ID && sim.IF_ID.instr && sim.IF_ID.instr.pc === idx) stage = "IF";
+    else if (sim && sim.ID_EX && sim.ID_EX.instr && sim.ID_EX.instr.pc === idx) stage = "ID";
+    else if (sim && sim.EX_MEM && sim.EX_MEM.instr && sim.EX_MEM.instr.pc === idx) stage = "EX";
+    else if (sim && sim.MEM_WB && sim.MEM_WB.instr && sim.MEM_WB.instr.pc === idx) stage = "MEM/WB";
+    td.textContent = stage || "";
+    if (stage) td.classList.add("stage");
+    row.appendChild(td);
   });
 }
 
-const btnLoad = $("btn-load");
-if (btnLoad) btnLoad.addEventListener("click", onLoadProgram);
+// ----- Botões / controles -----
+document.getElementById("btn-load").addEventListener("click", () => {
+  const program = programFromTextarea();
+  if (program.length === 0) return alert("Cole ou selecione um programa antes de carregar.");
 
-const btnStep = $("btn-step");
-if (btnStep) btnStep.addEventListener("click", onStep);
-
-const btnRun = $("btn-run");
-if (btnRun) btnRun.addEventListener("click", onRun);
-
-const btnReset = $("btn-reset");
-if (btnReset) btnReset.addEventListener("click", onReset);
-
-const btnExport = $("btn-export");
-if (btnExport) btnExport.addEventListener("click", onExport);
-
-// ------------------------------
-// Ações
-// ------------------------------
-function onLoadProgram() {
-  const ta = $("program-input");
-  if (!ta) return;
-  const program = ta.value
-    .split("\n")
-    .map(s => s.trim())
-    .filter(s => s !== "" && !s.startsWith("//") && !s.startsWith("#"));
-
-  // Config simples (pipeline.js usa predictorSize)
-  const config = { predictorSize: 32 };
-
-  // PipelineSimulator vem do pipeline.js (global)
-  sim = new window.PipelineSimulator(program, config);
-
-  // Monta linhas do diagrama (uma por instrução “de verdade” no programa)
-  resetDiagram();
-  const body = $("pipeline-diagram-body");
-  if (!body) return;
-
-  sim.program.forEach((instr, index) => {
-    // pula labels (nop cujo raw tem ':') e nops explícitos
-    if (!instr || instr.opcode === "nop" || (instr.raw && instr.raw.includes(":"))) return;
-
-    const row = body.insertRow();
-    row.id = `instr-row-${index}`;
-    const nameCell = row.insertCell();
-    nameCell.innerText = `(${index}) ${instr.raw}`;
-
-    // primeira célula “C 0”
-    const first = row.insertCell();
-    first.innerText = " ";
-    first.className = "stage- ";
-
-    pipelineHistory.push({ pc: index, row, cycles: [" "] });
+  // cria instância do simulador
+  sim = new PipelineSimulator(program, {
+    predictorSize: 32
   });
 
-  updateUI(); // Atualiza registradores/metrics iniciais
-}
-
-function onStep() {
-  if (!sim || sim.finished) return;
-  sim.tick();
+  // reseta diagrama e UI
+  resetDiagram(program);
   updateUI();
-  updatePipelineDiagram();
-}
+  alert("Programa carregado. Use 'Próximo Ciclo' ou 'Executar Tudo'.");
+});
 
-async function onRun() {
-  if (!sim) return;
+document.getElementById("btn-step").addEventListener("click", () => {
+  if (!sim) return alert("Carregue um programa primeiro.");
+  sim.tick();
+  addCycleToDiagram(sim);
+  updateUI();
+  if (sim.finished) alert("Simulação finalizada.");
+});
+
+document.getElementById("btn-run").addEventListener("click", async () => {
+  if (!sim) return alert("Carregue um programa primeiro.");
   running = true;
-  // Limite de segurança para não travar UI
-  const LIMIT = 2000;
-  while (running && !sim.finished && sim.cycle < LIMIT) {
+  for (let i = 0; i < 500 && !sim.finished && running; i++) {
     sim.tick();
+    addCycleToDiagram(sim);
     updateUI();
-    updatePipelineDiagram();
-    // pequeno delay para ver o diagrama “andar”
-    await new Promise(r => setTimeout(r, 60));
+    await sleep(120);
   }
   running = false;
-  if (sim && sim.cycle >= LIMIT) alert("Limite de ciclos atingido.");
-}
+  if (sim && sim.finished) alert("Simulação finalizada.");
+});
 
-function onReset() {
+document.getElementById('btn-reset').addEventListener('click', () => {
   running = false;
-  sim = null;
+  if (sim) sim = null;
 
-  // limpa tabela de pipeline corrente (IF..WB)
-  ["stage-if","stage-id","stage-ex","stage-mem","stage-wb"].forEach(id => setText(id, "-"));
+  // visual reset (mantém o conteúdo do textarea)
+  document.querySelectorAll('#pipeline td').forEach(td => td.innerText = '-');
+  for (let i = 0; i < 32; i++) document.getElementById('reg-' + i).innerText = '0';
+  document.querySelectorAll('#metrics td').forEach(td => td.innerText = '0');
 
-  // zera registradores
-  for (let i = 0; i < 32; i++) setText(`reg-${i}`, "0");
+  // limpa caches e diagrama
+  document.querySelectorAll('#cache-table td').forEach(td => td.innerText = '0');
+  const header = document.getElementById("pipeline-diagram-header");
+  const body = document.getElementById("pipeline-diagram-body");
+  if (header && body) { header.innerHTML = "<th>Instrução</th>"; body.innerHTML = ""; }
+});
 
-  // zera métricas
-  setText("metrics-cycles", "0");
-  setText("metrics-cpi", "0");
-  setText("metrics-stalls", "0");
-  setText("metrics-flushes", "0");
-  setText("metrics-branch", "0/0");
+document.getElementById('btn-export').addEventListener('click', () => {
+  if (!sim) {
+    alert("❌ Nenhuma simulação em execução ou carregada.");
+    return;
+  }
 
-  // caches
-  ["l1i","l1d","l2","l3"].forEach(level => {
-    setText(`metrics-${level}-hit`, "0");
-    setText(`metrics-${level}-miss`, "0");
-    setText(`metrics-${level}-hitrate`, "0");
+  try {
+    // monta objeto de métricas
+    const cycles = sim.cycle;
+    const instr = sim.instructionsCommitted || 0;
+    const cpi = instr ? (cycles / instr).toFixed(4) : "";
+    const branchAcc = sim.branchPredictions ? (sim.branchCorrect / sim.branchPredictions).toFixed(4) : "";
+
+    // caches
+    const stats = sim.memoryHierarchy ? sim.memoryHierarchy.stats() : [];
+    // stats order: L1I, L1D, L2, L3 (conforme cache.js)
+    const [L1I, L1D, L2, L3] = stats;
+
+    const header = [
+      "Benchmark",
+      "cycles",
+      "instructionsCommitted",
+      "CPI",
+      "stallsData",
+      "stallsCache",
+      "flushes",
+      "branchPredictions",
+      "branchCorrect",
+      "branchAccuracy",
+      "L1I_hits",
+      "L1I_misses",
+      "L1D_hits",
+      "L1D_misses",
+      "L2_hits",
+      "L2_misses",
+      "L3_hits",
+      "L3_misses"
+    ];
+
+    const benchSelect = document.getElementById("benchmark-select");
+    const benchName = benchSelect ? (benchSelect.options[benchSelect.selectedIndex].text || benchSelect.value) : "custom";
+
+    const values = [
+      benchName,
+      cycles,
+      instr,
+      cpi,
+      sim.stallsData || 0,
+      sim.stallsCache || 0,
+      sim.flushes || 0,
+      sim.branchPredictions || 0,
+      sim.branchCorrect || 0,
+      branchAcc || "",
+      (L1I ? L1I.hits : 0),
+      (L1I ? L1I.misses : 0),
+      (L1D ? L1D.hits : 0),
+      (L1D ? L1D.misses : 0),
+      (L2 ? L2.hits : 0),
+      (L2 ? L2.misses : 0),
+      (L3 ? L3.hits : 0),
+      (L3 ? L3.misses : 0)
+    ];
+
+    let csv = header.join(";") + "\n" + values.join(";");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = (benchName || "metrics") + ".csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+    alert("✅ CSV exportado com sucesso!");
+  } catch (error) {
+    console.error("Erro ao exportar CSV:", error);
+    alert("❌ Ocorreu um erro ao gerar o CSV. Veja o console.");
+  }
+});
+
+// botão para abrir gráficos
+document.getElementById("btn-graphs").addEventListener("click", () => {
+  window.location.href = "graficos.html";
+});
+
+// quick benches
+document.querySelectorAll(".bench").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const id = btn.dataset.prog;
+    const examples = {
+      alu1: `addi x1, x0, 1
+addi x2, x0, 2
+add x3, x1, x2
+add x4, x3, x1
+nop`,
+      alu2: `addi x1, x0, 5
+addi x2, x0, 6
+add x3, x1, x2
+add x4, x3, x3
+nop`,
+      mem1: `addi x1, x0, 0
+lw x2, 0(x1)
+addi x1, x1, 1
+lw x3, 0(x1)
+nop`,
+      mem2: `addi x1, x0, 0
+addi x2, x0, 7
+sw x2, 0(x1)
+addi x1, x1, 1
+sw x2, 0(x1)
+nop`,
+      ctrl1: `addi x1, x0, 5
+addi x2, x0, 0
+beq x2, x1, 2
+addi x2, x2, 1
+beq x0, x0, -2
+nop`,
+      ctrl2: `addi x1, x0, 0
+addi x2, x0, 1
+beq x1, x2, 2
+addi x1, x1, 1
+addi x2, x2, 1
+nop`
+    };
+    document.getElementById("program-input").value = examples[id] || "";
+    // marca select pra controle visual
+    document.getElementById("benchmark-select").value = id;
   });
+});
 
-  // limpa diagrama
-  resetDiagram();
-}
-
-function onExport() {
-  if (!sim) { alert("Nenhuma simulação carregada!"); return; }
-  const csv = buildMetricsCSV(sim);
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = "metrics.csv"; a.click();
-  URL.revokeObjectURL(url);
-  alert("CSV exportado.");
-}
-
-// ------------------------------
-// Diagrama de pipeline por ciclo
-// ------------------------------
-function updatePipelineDiagram() {
-  if (!sim) return;
-
-  // adiciona coluna de cabeçalho para o ciclo atual
-  appendHeaderCycle(sim.cycle);
-
-  // captura “PC -> estágio” no ciclo atual
-  const stageNow = new Map();
-  if (sim.IF_ID && !sim.isNOP(sim.IF_ID.instr))      stageNow.set(sim.IF_ID.instr.pc,        "IF");
-  if (sim.ID_EX && !sim.isNOP(sim.ID_EX.instr))      stageNow.set(sim.ID_EX.instr.pc,        "ID");
-  if (sim.EX_MEM && !sim.isNOP(sim.EX_MEM.instr))    stageNow.set(sim.EX_MEM.instr.pc,       "EX");
-  if (sim.MEM_WB && !sim.isNOP(sim.MEM_WB.instr))    stageNow.set(sim.MEM_WB.instr.pc,       "MEM");
-  if (sim.lastCommittedInstr && !sim.isNOP(sim.lastCommittedInstr))
-    stageNow.set(sim.lastCommittedInstr.pc, "WB");
-
-  // Atualiza cada linha (PC “original” do programa)
-  pipelineHistory.forEach(entry => {
-    const td = entry.row.insertCell();
-    const last = entry.cycles[entry.cycles.length - 1] || " ";
-    let cur = " ";
-
-    // 1) estágio ativo neste ciclo
-    if (stageNow.has(entry.pc)) {
-      cur = stageNow.get(entry.pc);
-    }
-    // 2) flush de branch/jump resolvido no EX (pipeline.js controla sim.flushedPCs)
-    else if (Array.isArray(sim.flushedPCs) && sim.flushedPCs.includes(entry.pc)) {
-      cur = "FLUSH";
-    }
-    // 3) bolha de dependência (load-use) – pipeline.js marca this.stall e injeta NOP em ID na rodada
-    else if (sim.stall && last === "ID") {
-      cur = "STALL";
-    }
-    // 4) “persistência” de estágio em caso de stall de cache – pipeline.js usa stallCycles internamente
-    //    Aqui, se não houve estágio novo, mantemos estágio “ativo” (IF/ID/EX/MEM) do último ciclo
-    else if (last === "IF" || last === "ID" || last === "EX" || last === "MEM") {
-      // repete o estágio quando o pipeline “congelou” (visual)
-      cur = last;
-    }
-    // 5) após WB, transforma numa marca “.” no próximo ciclo (não bloqueia reaparecer em loops)
-    else if (last === "WB" || last === ".") {
-      cur = ".";
-    }
-    // 6) senão, permanece vazio
-
-    td.innerText = cur;
-    td.className = ""; // limpa classes anteriores para minimizar acúmulo
-    if      (cur === "IF")    td.classList.add("stage-if");
-    else if (cur === "ID")    td.classList.add("stage-id");
-    else if (cur === "EX")    td.classList.add("stage-ex");
-    else if (cur === "MEM")   td.classList.add("stage-mem");
-    else if (cur === "WB")    td.classList.add("stage-wb");
-    else if (cur === "STALL") td.classList.add("stage-stall");
-    else if (cur === "FLUSH") td.classList.add("stage-flush");
-    else if (cur === ".")     td.classList.add("stage-dot");
-
-    entry.cycles.push(cur);
-  });
-
-  // auto-scroll para a última coluna
-  const container = $("pipeline-diagram-container");
-  if (container) container.scrollLeft = container.scrollWidth;
-}
-
-// ------------------------------
-// UI: estágios, registradores e métricas
-// ------------------------------
+// Atualiza UI a partir do estado do simulador
 function updateUI() {
   if (!sim) return;
 
-  // estágios atuais
-  setText("stage-if",  sim.IF_ID?.instr?.raw || "nop");
-  setText("stage-id",  sim.ID_EX?.instr?.raw || "nop");
-  setText("stage-ex",  sim.EX_MEM?.instr?.raw || "nop");
-  setText("stage-mem", sim.MEM_WB?.instr?.raw || "nop");
-  setText("stage-wb",  sim.lastCommittedInstr ? sim.lastCommittedInstr.raw : (sim.MEM_WB?.instr?.raw || "nop"));
+  document.getElementById('stage-if').innerText = sim.IF_ID && sim.IF_ID.instr ? sim.IF_ID.instr.opcode : 'nop';
+  document.getElementById('stage-id').innerText = sim.ID_EX && sim.ID_EX.instr ? sim.ID_EX.instr.opcode : 'nop';
+  document.getElementById('stage-ex').innerText = sim.EX_MEM && sim.EX_MEM.instr ? sim.EX_MEM.instr.opcode : 'nop';
+  document.getElementById('stage-mem').innerText = sim.MEM_WB && sim.MEM_WB.instr ? (sim.MEM_WB.instr.opcode) : 'nop';
+  document.getElementById('stage-wb').innerText = sim.MEM_WB && sim.MEM_WB.instr ? sim.MEM_WB.instr.opcode : 'nop';
 
   // registradores
-  if (sim.regFile && Array.isArray(sim.regFile.regs)) {
-    sim.regFile.regs.forEach((v, i) => setText(`reg-${i}`, String(v)));
-  }
-
-  // métricas básicas
-  setText("metrics-cycles", String(sim.cycle));
-  const CPI = sim.instructionsCommitted > 0 ? (sim.cycle / sim.instructionsCommitted).toFixed(2) : "0";
-  setText("metrics-cpi", CPI);
-  setText("metrics-stalls", String(sim.stallsData + sim.stallsCache));
-  setText("metrics-flushes", String(sim.flushes));
-  setText("metrics-branch", `${sim.branchCorrect}/${sim.branchPredictions}`);
-
-  // estatísticas de cache (L1I, L1D, L2, L3)
-  const stats = sim.memoryHierarchy?.stats?.() || [];
-  const byName = {};
-  stats.forEach(s => { byName[s.name] = s; });
-
-  updateCacheMetrics("l1i", byName["L1I"]);
-  updateCacheMetrics("l1d", byName["L1D"]);
-  updateCacheMetrics("l2",  byName["L2"]);
-  updateCacheMetrics("l3",  byName["L3"]);
-
-    // ==================== ATUALIZAÇÃO DA HIERARQUIA DE MEMÓRIA ====================
-  if (sim.memoryHierarchy) {
-    const levels = sim.memoryHierarchy.stats();
-    levels.forEach(lvl => {
-      const idPrefix = lvl.name || lvl.level; // compatibilidade L1I/L1D/L2/L3
-      const hitsEl = document.getElementById(`${idPrefix}-hits`);
-      const missesEl = document.getElementById(`${idPrefix}-misses`);
-      const rateEl = document.getElementById(`${idPrefix}-hitRate`);
-      if (hitsEl) hitsEl.textContent = lvl.hits ?? 0;
-      if (missesEl) missesEl.textContent = lvl.misses ?? 0;
-      if (rateEl) rateEl.textContent = ((lvl.hitRate || 0) * 100).toFixed(1) + "%";
+  if (sim.regFile && sim.regFile.regs) {
+    sim.regFile.regs.forEach((val, i) => {
+      const el = document.getElementById('reg-' + i);
+      if (el) el.innerText = val;
     });
   }
 
-}
+  // métricas
+  document.getElementById('metrics-cycles').innerText = sim.cycle;
+  const CPI = sim.instructionsCommitted > 0 ? (sim.cycle / sim.instructionsCommitted).toFixed(2) : 0;
+  document.getElementById('metrics-cpi').innerText = CPI;
+  document.getElementById('metrics-stalls').innerText = (sim.stallsData || 0) + (sim.stallsCache || 0);
+  document.getElementById('metrics-flushes').innerText = sim.flushes || 0;
+  document.getElementById('metrics-branch').innerText = `${sim.branchCorrect || 0}/${sim.branchPredictions || 0}`;
 
-function updateCacheMetrics(prefix, s) {
-  if (!s) {
-    setText(`metrics-${prefix}-hit`, "0");
-    setText(`metrics-${prefix}-miss`, "0");
-    setText(`metrics-${prefix}-hitrate`, "0");
-    return;
+  // caches (usa memoryHierarchy.stats())
+  if (sim.memoryHierarchy) {
+    const stats = sim.memoryHierarchy.stats();
+    const [L1I, L1D, L2, L3] = stats;
+    if (L1I) {
+      document.getElementById('cache-l1i-hits').innerText = L1I.hits;
+      document.getElementById('cache-l1i-misses').innerText = L1I.misses;
+      document.getElementById('cache-l1i-rate').innerText = ((L1I.hits / Math.max(1, L1I.accesses)) * 100).toFixed(2);
+    }
+    if (L1D) {
+      document.getElementById('cache-l1d-hits').innerText = L1D.hits;
+      document.getElementById('cache-l1d-misses').innerText = L1D.misses;
+      document.getElementById('cache-l1d-rate').innerText = ((L1D.hits / Math.max(1, L1D.accesses)) * 100).toFixed(2);
+    }
+    if (L2) {
+      document.getElementById('cache-l2-hits').innerText = L2.hits;
+      document.getElementById('cache-l2-misses').innerText = L2.misses;
+      document.getElementById('cache-l2-rate').innerText = ((L2.hits / Math.max(1, L2.accesses)) * 100).toFixed(2);
+    }
+    if (L3) {
+      document.getElementById('cache-l3-hits').innerText = L3.hits;
+      document.getElementById('cache-l3-misses').innerText = L3.misses;
+      document.getElementById('cache-l3-rate').innerText = ((L3.hits / Math.max(1, L3.accesses)) * 100).toFixed(2);
+    }
   }
-  setText(`metrics-${prefix}-hit`, String(s.hits));
-  setText(`metrics-${prefix}-miss`, String(s.misses));
-  setText(`metrics-${prefix}-hitrate`, (s.hitRate * 100).toFixed(1) + "%");
-}
-
-// ------------------------------
-// Export CSV
-// ------------------------------
-function buildMetricsCSV(sim) {
-  const header = [
-    "cycles","instructionsCommitted","CPI","stallsData","stallsCache","flushes",
-    "branchPredictions","branchCorrect",
-    "L1I_hits","L1I_misses","L1I_hitRate",
-    "L1D_hits","L1D_misses","L1D_hitRate",
-    "L2_hits","L2_misses","L2_hitRate",
-    "L3_hits","L3_misses","L3_hitRate"
-  ];
-
-  const CPI = sim.instructionsCommitted ? (sim.cycle / sim.instructionsCommitted) : 0;
-
-  const stats = sim.memoryHierarchy?.stats?.() || [];
-  const by = {}; stats.forEach(s => by[s.name] = s);
-
-  function safe(v, f = x => x) { return v != null ? f(v) : 0; }
-
-  const row = [
-    sim.cycle,
-    sim.instructionsCommitted,
-    CPI.toFixed(4),
-    sim.stallsData,
-    sim.stallsCache,
-    sim.flushes,
-    sim.branchPredictions,
-    sim.branchCorrect,
-    safe(by["L1I"]?.hits),  safe(by["L1I"]?.misses),  (safe(by["L1I"]?.hitRate, x=>x*100)).toFixed(2),
-    safe(by["L1D"]?.hits),  safe(by["L1D"]?.misses),  (safe(by["L1D"]?.hitRate, x=>x*100)).toFixed(2),
-    safe(by["L2"]?.hits),   safe(by["L2"]?.misses),   (safe(by["L2"]?.hitRate,  x=>x*100)).toFixed(2),
-    safe(by["L3"]?.hits),   safe(by["L3"]?.misses),   (safe(by["L3"]?.hitRate,  x=>x*100)).toFixed(2)
-  ];
-
-  return header.join(";") + "\n" + row.join(";");
 }
