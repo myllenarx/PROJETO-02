@@ -6,6 +6,38 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Painel de Gráficos – Simulador</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            background: var(--bg);
+            color: var(--white);
+        }
+
+        main {
+            padding: 20px;
+        }
+
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+            gap: 24px;
+            margin-top: 20px;
+        }
+
+        .chart-card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+            height: 380px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        canvas {
+            flex: 1;
+        }
+    </style>
 </head>
 
 <body>
@@ -16,45 +48,44 @@
         </div>
     </header>
 
-    <main style="padding:20px">
+    <main>
         <div class="card" style="display:flex;gap:12px;align-items:center">
             <div style="flex:1">
-                <p>Carregue os arquivos CSV exportados pelo simulador (separador <strong>;</strong>). Selecione
-                    múltiplos arquivos (um por benchmark).</p>
+                <p>Carregue os arquivos CSV exportados pelo simulador (separador <strong>;</strong>).</p>
                 <input id="file-input" type="file" accept=".csv" multiple />
             </div>
             <div>
                 <button id="btn-load-csv"
-                    style="padding:10px 14px;background:var(--accent);border:none;color:white;border-radius:8px;cursor:pointer">Gerar
-                    Gráficos</button>
+                    style="padding:10px 14px;background:var(--accent);border:none;color:white;border-radius:8px;cursor:pointer">
+                    Gerar Gráficos
+                </button>
             </div>
         </div>
 
-        <div id="charts" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:16px">
-            <div class="card">
+        <div id="charts" class="chart-grid">
+            <div class="chart-card">
                 <h3>CPI por Benchmark</h3>
                 <canvas id="chart-cpi"></canvas>
             </div>
-            <div class="card">
+            <div class="chart-card">
                 <h3>Stalls (dados + cache)</h3>
                 <canvas id="chart-stalls"></canvas>
             </div>
-            <div class="card">
+            <div class="chart-card">
                 <h3>Flushes por Benchmark</h3>
                 <canvas id="chart-flushes"></canvas>
             </div>
-            <div class="card">
+            <div class="chart-card">
                 <h3>Taxa de Acerto L1I / L1D (%)</h3>
                 <canvas id="chart-cache"></canvas>
             </div>
-            <div class="card" style="grid-column:1 / -1">
+            <div class="chart-card" style="grid-column:1 / -1">
                 <h3>Precisão do Preditor de Desvio (%)</h3>
                 <canvas id="chart-branch"></canvas>
             </div>
         </div>
     </main>
 
-    <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="charts.js"></script>
 </body>
