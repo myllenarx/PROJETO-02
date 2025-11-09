@@ -1,19 +1,42 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Simulador Pipeline – Arquitetura II</title>
+  <meta name="description" content="Simulador educacional de pipeline (RISC-V simplificado) com hierarquia de memória e exportação de métricas.">
   <link rel="stylesheet" href="style.css">
+  <style>
+    #pipeline-diagram-container {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .diagram-wrap {
+      position: relative;
+    }
+    .auto-scroll-toggle {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(100, 120, 255, 0.2);
+      border: 1px solid rgba(100, 120, 255, 0.5);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .auto-scroll-toggle.active {
+      background: rgba(100, 120, 255, 0.8);
+    }
+  </style>
 </head>
-
 <body>
   <header class="topbar">
     <h1>Simulador Pipeline (Arquitetura II)</h1>
     <div class="top-actions">
-      <button id="btn-help" title="Ajuda rápida">Ajuda</button>
-      <button id="btn-graphs" title="Abrir painel de gráficos">Ver Gráficos</button>
+      <button id="btn-help" title="Ajuda rápida" aria-label="Ajuda">Ajuda</button>
+      <button id="btn-graphs" title="Abrir painel de gráficos" aria-label="Abrir painel de gráficos">Ver Gráficos</button>
     </div>
   </header>
 
@@ -138,6 +161,7 @@ nop
 
       <div class="card diagram-wrap" id="pipeline-diagram-container">
         <h3>Diagrama de Pipeline (ciclo a ciclo)</h3>
+        <button class="auto-scroll-toggle" id="auto-scroll-toggle">Auto Scroll: ON</button>
         <div class="content" style="padding:0;">
           <table class="diagram">
             <thead>
@@ -145,8 +169,7 @@ nop
                 <th>Instrução</th>
               </tr>
             </thead>
-            <tbody id="pipeline-diagram-body">
-            </tbody>
+            <tbody id="pipeline-diagram-body"></tbody>
           </table>
         </div>
       </div>
@@ -186,14 +209,11 @@ nop
           </tr>
         </table>
       </div>
-
     </section>
   </main>
 
-  <!-- scripts: cache.js and pipeline.js (originais) e main que liga a UI -->
   <script src="cache.js"></script>
   <script src="pipeline.js"></script>
   <script src="main.js"></script>
 </body>
-
 </html>

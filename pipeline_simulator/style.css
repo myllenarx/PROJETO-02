@@ -8,7 +8,6 @@
   --glass: rgba(255, 255, 255, 0.04);
 }
 
-/* RESET */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -21,17 +20,20 @@ body {
   font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
   background: var(--bg);
   color: var(--white);
-  overflow: hidden;
+  overflow-y: auto; /* liberado para rolar */
 }
 
-/* ======== TOPO ======== */
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 18px 28px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  background: linear-gradient(90deg, rgba(10, 20, 60, 0.7), rgba(8, 10, 30, 0.7));
+  background: linear-gradient(
+    90deg,
+    rgba(10, 20, 60, 0.7),
+    rgba(8, 10, 30, 0.7)
+  );
   backdrop-filter: blur(6px);
 }
 
@@ -52,19 +54,17 @@ body {
   cursor: pointer;
   transition: all 0.15s ease;
 }
-
 .top-actions button:hover {
   background: var(--accent);
   transform: translateY(-1px);
 }
 
-/* ======== LAYOUT ======== */
 .layout {
   display: grid;
   grid-template-columns: 420px 1fr;
   gap: 20px;
   padding: 20px;
-  height: calc(100% - 72px);
+  min-height: calc(100% - 72px);
 }
 
 .left-panel,
@@ -76,7 +76,6 @@ body {
   gap: 16px;
 }
 
-/* ======== CARDS ======== */
 .card {
   background: var(--card);
   border-radius: 10px;
@@ -93,7 +92,6 @@ body {
   letter-spacing: 0.3px;
 }
 
-/* ======== TEXTAREA ======== */
 #program-input {
   width: 100%;
   height: 180px;
@@ -106,18 +104,15 @@ body {
   resize: vertical;
   transition: 0.15s ease;
 }
-
 #program-input:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 4px rgba(100, 120, 255, 0.4);
 }
 
-/* ======== CONTROLS ======== */
 .controls {
   margin-top: 10px;
 }
-
 .controls button {
   margin-right: 8px;
   padding: 8px 10px;
@@ -129,13 +124,11 @@ body {
   font-weight: 600;
   transition: 0.15s;
 }
-
 .controls button:hover {
   transform: translateY(-1px);
   background: #5068ff;
 }
 
-/* ======== SELECT ======== */
 #benchmark-select {
   width: 100%;
   padding: 10px;
@@ -147,29 +140,24 @@ body {
   cursor: pointer;
   appearance: none;
 }
-
 #benchmark-select:hover {
   background-color: #1b2240;
 }
-
 #benchmark-select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(100, 120, 255, 0.4);
 }
-
 #benchmark-select option {
   background-color: #0f1724;
   color: var(--white);
 }
 
-/* ======== BENCH QUICK BUTTONS ======== */
 .bench-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
-
 .bench {
   padding: 8px;
   border-radius: 8px;
@@ -180,20 +168,17 @@ body {
   font-weight: 500;
   transition: 0.15s;
 }
-
 .bench:hover {
   background: var(--accent);
   transform: translateY(-1px);
 }
 
-/* ======== TABELAS ======== */
 table {
   width: 100%;
   border-collapse: collapse;
   text-align: center;
   font-size: 14px;
 }
-
 th {
   background: #1a1f33;
   color: var(--white);
@@ -201,7 +186,6 @@ th {
   padding: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
-
 td {
   background: rgba(255, 255, 255, 0.03);
   color: var(--white);
@@ -209,19 +193,15 @@ td {
   padding: 6px;
 }
 
-/* ======== REGISTRADORES ======== */
 #registers-container {
   max-height: 220px;
   overflow-y: auto;
 }
-
-/* ======== MÉTRICAS ======== */
 #metrics th,
 #metrics td {
   text-align: center;
 }
 
-/* ======== PAINEL DE CACHES ======== */
 #cache-container {
   margin-top: 10px;
   background-color: #0f1724;
@@ -229,20 +209,16 @@ td {
   border: 1px solid rgba(255, 255, 255, 0.1);
   padding: 8px;
 }
-
 #cache-table th {
   background-color: #1a1f33;
   color: var(--white);
 }
-
 #cache-table td {
   background-color: rgba(255, 255, 255, 0.05);
   color: var(--white);
 }
 
-/* ======== DIAGRAMA DE PIPELINE ======== */
-/* ======== DIAGRAMA DE PIPELINE (corrigido) ======== */
-/* ======== DIAGRAMA DE PIPELINE (corrigido e funcional) ======== */
+/* Diagrama de Pipeline */
 .diagram-wrap {
   margin-top: 15px;
   background-color: #0f1724;
@@ -251,29 +227,24 @@ td {
   color: var(--white);
   padding: 10px;
   height: 320px;
-  /* força uma altura visível */
   display: flex;
   flex-direction: column;
 }
-
 .diagram-wrap .content {
   flex: 1;
-  /* ocupa o restante da altura */
   overflow-x: auto;
-  /* rolagem horizontal */
   overflow-y: auto;
-  /* rolagem vertical */
 }
-
+.diagram-wrap .content {
+  scroll-behavior: smooth;
+}
 .diagram {
   width: max-content;
-  /* permite expandir conforme ciclos */
   min-width: 100%;
   border-collapse: collapse;
   text-align: center;
   font-size: 13px;
 }
-
 .diagram th {
   background-color: #1a1f33;
   color: var(--white);
@@ -283,7 +254,6 @@ td {
   top: 0;
   z-index: 2;
 }
-
 .diagram td {
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--white);
@@ -291,7 +261,6 @@ td {
   background-color: rgba(255, 255, 255, 0.05);
   white-space: nowrap;
 }
-
 .diagram td.stage {
   background-color: rgba(100, 120, 255, 0.25);
   color: #a5baff;
@@ -299,32 +268,42 @@ td {
   border-radius: 4px;
 }
 
-/* ======== SCROLLBAR (suave e discreta) ======== */
-::-webkit-scrollbar {
-  width: 8px;
+/* Evitar quebra em telas estreitas */
+.right-panel {
+  overflow-x: auto;
+}
+table {
+  max-width: 100%;
 }
 
+/* Scrollbar Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 120, 255, 0.4) transparent;
+}
+
+/* Scrollbar WebKit */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
 ::-webkit-scrollbar-thumb {
   background: rgba(100, 120, 255, 0.4);
   border-radius: 4px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* ======== RESPONSIVO ======== */
-@media(max-width: 900px) {
+@media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;
     grid-auto-rows: auto;
     padding: 12px;
   }
-
   .left-panel {
     order: 2;
   }
-
   .right-panel {
     order: 1;
   }
