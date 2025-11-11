@@ -1,0 +1,41 @@
+name: 🚀 Deploy Pipeline Simulator to GitHub Pages
+
+# O deploy será executado automaticamente quando houver push na branch main
+on:
+  push:
+    branches: [ main ]
+
+# Permissões necessárias para o Pages funcionar corretamente
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Configura o ambiente do GitHub Pages
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Faz o checkout do repositório
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2️⃣ Prepara o ambiente do GitHub Pages
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      # 3️⃣ Envia os arquivos da pasta pipeline_simulator como artefato para deploy
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './pipeline_simulator'
+
+      # 4️⃣ Publica no GitHub Pages
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
