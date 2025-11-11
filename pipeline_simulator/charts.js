@@ -1,4 +1,4 @@
-// charts.js — robusto e corrigido
+// charts.js – robusto e corrigido
 const input = document.getElementById("file-input");
 const btnLoad = document.getElementById("btn-load-csv");
 const btnBack = document.getElementById("btn-back");
@@ -7,7 +7,7 @@ if (btnBack) {
   btnBack.addEventListener("click", () => window.location.href = "index.html");
 }
 
-// Função auxiliar para garantir que Chart.js está carregado
+// CORRIGIDO: Função mais robusta para aguardar Chart.js com retry
 function waitForChart() {
   return new Promise((resolve, reject) => {
     if (typeof Chart !== 'undefined') {
@@ -16,15 +16,16 @@ function waitForChart() {
     }
     
     let attempts = 0;
-    const maxAttempts = 50; // 5 segundos
+    const maxAttempts = 100; // 10 segundos
     const interval = setInterval(() => {
       attempts++;
       if (typeof Chart !== 'undefined') {
         clearInterval(interval);
+        console.log("✅ Chart.js carregado com sucesso");
         resolve();
       } else if (attempts >= maxAttempts) {
         clearInterval(interval);
-        reject(new Error('Chart.js não foi carregado'));
+        reject(new Error('Chart.js não foi carregado após 10 segundos'));
       }
     }, 100);
   });
@@ -159,6 +160,7 @@ function buildDatasets(data) {
   return { labels, cpi, stalls, flushes, branchAcc, l1i, l1d, l2, l3 };
 }
 
+// CORRIGIDO: Função mais robusta para criar gráficos
 function makeChart(id, datasetKey, label, options = {}) {
   const ctx = document.getElementById(id);
   if (!ctx) {
@@ -175,6 +177,12 @@ function makeChart(id, datasetKey, label, options = {}) {
   const d = window.__DATASETS__;
   if (!d || !d[datasetKey]) {
     console.warn(`Dataset '${datasetKey}' não encontrado`);
+    return null;
+  }
+
+  // Validação adicional dos dados
+  if (!Array.isArray(d[datasetKey]) || d[datasetKey].length === 0) {
+    console.warn(`Dataset '${datasetKey}' está vazio`);
     return null;
   }
 
@@ -209,21 +217,26 @@ function makeChart(id, datasetKey, label, options = {}) {
     }
   };
 
-  return new Chart(canvas, {
-    type: "bar",
-    data: {
-      labels: d.labels,
-      datasets: [{
-        label,
-        data: d[datasetKey],
-        borderColor: "rgba(255,255,255,0.2)",
-        backgroundColor: "rgba(100,120,255,0.85)",
-        borderWidth: 1,
-        borderRadius: 4,
-      }]
-    },
-    options: Object.assign({}, defaultOptions, options)
-  });
+  try {
+    return new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: d.labels,
+        datasets: [{
+          label,
+          data: d[datasetKey],
+          borderColor: "rgba(255,255,255,0.2)",
+          backgroundColor: "rgba(100,120,255,0.85)",
+          borderWidth: 1,
+          borderRadius: 4,
+        }]
+      },
+      options: Object.assign({}, defaultOptions, options)
+    });
+  } catch (error) {
+    console.error(`Erro ao criar gráfico ${id}:`, error);
+    return null;
+  }
 }
 
 let charts = [];
@@ -238,12 +251,12 @@ if (btnLoad) {
         return;
       }
 
-      // Aguarda Chart.js estar disponível
+      // CORRIGIDO: Aguarda Chart.js estar disponível com tratamento de erro
       try {
         await waitForChart();
       } catch (e) {
-        alert("❌ Erro ao carregar biblioteca de gráficos. Recarregue a página.");
-        console.error(e);
+        alert("❌ Erro ao carregar biblioteca de gráficos. Recarregue a página e tente novamente.");
+        console.error("Erro ao carregar Chart.js:", e);
         return;
       }
 
@@ -269,7 +282,7 @@ if (btnLoad) {
       });
       charts = [];
 
-      // Cria novos gráficos
+      // Cria novos gráficos com validação
       const cpiChart = makeChart("chart-cpi", "cpi", "CPI");
       if (cpiChart) charts.push(cpiChart);
 
@@ -282,70 +295,98 @@ if (btnLoad) {
       // Gráfico de cache com múltiplas barras
       const cacheCtx = document.getElementById("chart-cache");
       if (cacheCtx && window.__DATASETS__) {
-        const cacheCanvas = cacheCtx.getContext("2d");
-        if (cacheCanvas) {
-          const cacheChart = new Chart(cacheCanvas, {
-            type: "bar",
-            data: {
-              labels: window.__DATASETS__.labels,
-              datasets: [
-                { 
-                  label: "L1I (%)", 
-                  data: window.__DATASETS__.l1i, 
-                  backgroundColor: "rgba(100,120,255,0.85)",
-                  borderRadius: 4
-                },
-                { 
-                  label: "L1D (%)", 
-                  data: window.__DATASETS__.l1d, 
-                  backgroundColor: "rgba(64,160,255,0.75)",
-                  borderRadius: 4
-                }
-              ]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { 
-                legend: { 
-                  labels: { color: "#cfd8ff" },
-                  display: true
-                }
+        try {
+          const cacheCanvas = cacheCtx.getContext("2d");
+          if (cacheCanvas) {
+            const cacheChart = new Chart(cacheCanvas, {
+              type: "bar",
+              data: {
+                labels: window.__DATASETS__.labels,
+                datasets: [
+                  { 
+                    label: "L1I (%)", 
+                    data: window.__DATASETS__.l1i, 
+                    backgroundColor: "rgba(100,120,255,0.85)",
+                    borderRadius: 4
+                  },
+                  { 
+                    label: "L1D (%)", 
+                    data: window.__DATASETS__.l1d, 
+                    backgroundColor: "rgba(64,160,255,0.75)",
+                    borderRadius: 4
+                  }
+                ]
               },
-              scales: {
-                y: { 
-                  beginAtZero: true, 
-                  max: 100, 
-                  ticks: { color: "#cfd8ff" },
-                  grid: { color: 'rgba(255, 255, 255, 0.08)' }
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                  legend: { 
+                    labels: { color: "#cfd8ff" },
+                    display: true
+                  }
                 },
-                x: { 
-                  ticks: { color: "#cfd8ff" },
-                  grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                scales: {
+                  y: { 
+                    beginAtZero: true, 
+                    max: 100, 
+                    ticks: { color: "#cfd8ff" },
+                    grid: { color: 'rgba(255, 255, 255, 0.08)' }
+                  },
+                  x: { 
+                    ticks: { color: "#cfd8ff" },
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                  }
                 }
               }
-            }
-          });
-          charts.push(cacheChart);
+            });
+            charts.push(cacheChart);
+          }
+        } catch (error) {
+          console.error("Erro ao criar gráfico de cache:", error);
         }
       }
 
       const branchChart = makeChart("chart-branch", "branchAcc", "Precisão do Preditor (%)");
       if (branchChart) charts.push(branchChart);
 
-      // Scroll suave para os gráficos
+      // CORRIGIDO: Validação antes de scroll
       const chartsContainer = document.getElementById("charts");
       if (chartsContainer) {
         setTimeout(() => {
-          chartsContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+          try {
+            chartsContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+          } catch (e) {
+            console.warn("Erro ao fazer scroll:", e);
+          }
         }, 100);
       }
 
-      console.log("✅ Gráficos gerados com sucesso!");
+      // Feedback ao usuário
+      if (charts.length > 0) {
+        console.log(`✅ ${charts.length} gráficos gerados com sucesso!`);
+        alert(`✅ ${charts.length} gráficos gerados com sucesso!`);
+      } else {
+        console.warn("⚠️ Nenhum gráfico foi gerado");
+        alert("⚠️ Houve um problema ao gerar os gráficos. Verifique o console.");
+      }
       
     } catch (error) {
       console.error("Erro crítico ao gerar gráficos:", error);
-      alert(`❌ Erro ao gerar gráficos: ${error.message}`);
+      alert(`❌ Erro ao gerar gráficos: ${error.message}\n\nVerifique o console para mais detalhes.`);
     }
   });
 }
+
+// CORRIGIDO: Inicialização com verificação
+document.addEventListener('DOMContentLoaded', () => {
+  console.log("📊 Módulo de gráficos carregado");
+  
+  // Verifica se todos os elementos necessários existem
+  const requiredElements = ['file-input', 'btn-load-csv', 'btn-back'];
+  const missingElements = requiredElements.filter(id => !document.getElementById(id));
+  
+  if (missingElements.length > 0) {
+    console.warn(`⚠️ Elementos ausentes: ${missingElements.join(', ')}`);
+  }
+});

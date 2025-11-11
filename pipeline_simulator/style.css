@@ -244,6 +244,7 @@ td {
   border-collapse: collapse;
   text-align: center;
   font-size: 13px;
+  position: relative;
 }
 .diagram th {
   background-color: #1a1f33;
@@ -252,7 +253,13 @@ td {
   border: 1px solid rgba(255, 255, 255, 0.1);
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 3;
+}
+.diagram th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background-color: #1a1f33;
 }
 .diagram td {
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -261,11 +268,44 @@ td {
   background-color: rgba(255, 255, 255, 0.05);
   white-space: nowrap;
 }
+.diagram td:first-child {
+  position: sticky;
+  left: 0;
+  background-color: #0f1724;
+  font-weight: 600;
+  z-index: 2;
+  border-right: 2px solid rgba(100, 120, 255, 0.3);
+}
 .diagram td.stage {
-  background-color: rgba(100, 120, 255, 0.25);
-  color: #a5baff;
   font-weight: bold;
   border-radius: 4px;
+}
+
+/* Cores por estágio do pipeline */
+.diagram td.stage-IF {
+  background-color: rgba(100, 180, 255, 0.35);
+  color: #b3e0ff;
+  border: 1px solid rgba(100, 180, 255, 0.5);
+}
+.diagram td.stage-ID {
+  background-color: rgba(120, 220, 150, 0.35);
+  color: #c5ffdb;
+  border: 1px solid rgba(120, 220, 150, 0.5);
+}
+.diagram td.stage-EX {
+  background-color: rgba(255, 200, 100, 0.35);
+  color: #ffe6b3;
+  border: 1px solid rgba(255, 200, 100, 0.5);
+}
+.diagram td.stage-MEM {
+  background-color: rgba(255, 140, 140, 0.35);
+  color: #ffcccc;
+  border: 1px solid rgba(255, 140, 140, 0.5);
+}
+.diagram td.stage-WB {
+  background-color: rgba(200, 140, 255, 0.35);
+  color: #e6ccff;
+  border: 1px solid rgba(200, 140, 255, 0.5);
 }
 
 /* Evitar quebra em telas estreitas */
