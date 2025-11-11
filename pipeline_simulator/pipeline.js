@@ -1,74 +1,106 @@
 // ============================================================
-// pipeline.js – Simulador de pipeline com hierarquia de memória
+// pipeline.js – Simulador de pipeline com hierarquia de memória (CORRIGIDO)
 // ============================================================
 
-// ===================== UTILITÁRIOS / PARSER =====================
 function isRegisterToken(tok) { return tok && tok.startsWith("x"); }
-function regNum(tok) { return parseInt(tok.substring(1)); }
+function regNum(tok) { 
+  const num = parseInt(tok.substring(1)); 
+  // CORRIGIDO: Validação de registrador
+  if (isNaN(num) || num < 0 || num > 31) {
+    console.warn(`Registrador inválido: ${tok}`);
+    return 0;
+  }
+  return num;
+}
 
 function parseInstruction(line, index) {
   const baseInstr = { opcode: "nop", pc: index, raw: line || "nop" };
   if (!line) return baseInstr;
   let s = line.trim();
-  if (s === "" || s.startsWith("#")) return baseInstr;
+  if (s === "" || s.startsWith("//") || s.startsWith("#")) return baseInstr;
 
-  const labelMatch = s.match(/^(\w+):/);
+  const labelMatch = s.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
+  let label = null;
   if (labelMatch) {
-    s = s.substring(labelMatch[0].length).trim();
-    if (s === "") return baseInstr;
+    label = labelMatch[1];
+    s = labelMatch[2].trim();
+    if (s === "") return { ...baseInstr, label };
   }
 
-  const t = s.replace(",", " ").split(/\s+/);
+  const t = s.replace(/,/g, ' ').split(/\s+/).filter(tok => tok !== '');
+  if (t.length === 0) return baseInstr;
+
   const op = t[0];
   try {
     switch (op) {
       case "add": case "sub": case "and": case "or": case "xor": case "slt":
-        return { ...baseInstr, opcode: op, rd: regNum(t[1]), rs1: regNum(t[2]), rs2: regNum(t[3]) };
+        if (t.length < 4) throw new Error("Operandos insuficientes");
+        return { ...baseInstr, opcode: op, rd: regNum(t[1]), rs1: regNum(t[2]), rs2: regNum(t[3]), label };
+
       case "addi":
-        return { ...baseInstr, opcode: op, rd: regNum(t[1]), rs1: regNum(t[2]), imm: parseInt(t[3]) };
-      case "lw": {
+        if (t.length < 4) throw new Error("Operandos insuficientes");
+        return { ...baseInstr, opcode: op, rd: regNum(t[1]), rs1: regNum(t[2]), imm: parseInt(t[3]), label };
+
+      case "lw": case "sw": {
+        if (t.length < 3) throw new Error("Operandos insuficientes");
         const match = t[2].match(/(-?\d+)\(x(\d+)\)/);
-        return { ...baseInstr, opcode: op, rd: regNum(t[1]), rs1: parseInt(match[2]), imm: parseInt(match[1]) };
+        if (!match) throw new Error("Formato de offset inválido");
+        if (op === "lw") {
+          return { ...baseInstr, opcode: op, rd: regNum(t[1]), rs1: parseInt(match[2]), imm: parseInt(match[1]), label };
+        } else {
+          return { ...baseInstr, opcode: op, rs2: regNum(t[1]), rs1: parseInt(match[2]), imm: parseInt(match[1]), label };
+        }
       }
-      case "sw": {
-        const match = t[2].match(/(-?\d+)\(x(\d+)\)/);
-        return { ...baseInstr, opcode: op, rs2: regNum(t[1]), rs1: parseInt(match[2]), imm: parseInt(match[1]) };
-      }
+
       case "beq": case "bne":
-        return { ...baseInstr, opcode: op, rs1: regNum(t[1]), rs2: regNum(t[2]), imm: parseInt(t[3]) };
+        if (t.length < 4) throw new Error("Operandos insuficientes");
+        return { ...baseInstr, opcode: op, rs1: regNum(t[1]), rs2: regNum(t[2]), imm: parseInt(t[3]), label, isBranch: true };
+
       case "jal":
-        return { ...baseInstr, opcode: op, rd: regNum(t[1]), imm: parseInt(t[2]) };
+        if (t.length < 3) throw new Error("Operandos insuficientes");
+        return { ...baseInstr, opcode: op, rd: regNum(t[1]), imm: parseInt(t[2]), label, isJump: true };
+
       case "jalr": {
+        if (t.length < 3) throw new Error("Operandos insuficientes");
         const match = t[2].match(/(-?\d+)\(x(\d+)\)/);
-        return { ...baseInstr, opcode: op, rd: regNum(t[1]), rs1: parseInt(match[2]), imm: parseInt(match[1]) };
+        if (!match) throw new Error("Formato de offset inválido");
+        return { ...baseInstr, opcode: op, rd: regNum(t[1]), rs1: parseInt(match[2]), imm: parseInt(match[1]), label, isJump: true };
       }
+
+      case "nop":
+        return baseInstr;
+
       default:
-        return { ...baseInstr, opcode: "nop" };
+        console.warn(`Instrução não reconhecida: ${op}`);
+        return { ...baseInstr, opcode: "nop", label };
     }
   } catch (e) {
-    console.warn("Erro no parse:", line, e);
-    return { ...baseInstr, opcode: "nop" };
+    console.warn(`Erro no parse: "${line}" - ${e.message}`);
+    return { ...baseInstr, opcode: "nop", label };
   }
 }
 
-// ===================== REGISTRADORES E MEMÓRIA =====================
 class RegisterFile {
   constructor() { this.regs = Array(32).fill(0); }
   read(n) { return n === 0 ? 0 : this.regs[n]; }
-  write(n, v) { if (n !== 0) this.regs[n] = v; }
+  write(n, v) { 
+    if (n !== 0) {
+      // CORRIGIDO: Simular overflow de 32 bits
+      this.regs[n] = v | 0; // Força conversão para int32
+    }
+  }
 }
 
-// ===================== PREDITOR DE DESVIO 1-BIT =====================
 class OneBitPredictor {
-  constructor(size = 64) { this.size = size; this.table = new Uint8Array(size); }
+  constructor(size = 64) { 
+    this.size = size; 
+    this.table = new Uint8Array(size); 
+  }
   index(pc) { return pc & (this.size - 1); }
   predict(pc) { return this.table[this.index(pc)] === 1; }
   update(pc, taken) { this.table[this.index(pc)] = taken ? 1 : 0; }
 }
 
-// ============================================================
-// CLASSE PRINCIPAL – PipelineSimulator
-// ============================================================
 class PipelineSimulator {
   constructor(programLines = [], config = {}) {
     this.program = programLines.map((line, i) => parseInstruction(line, i));
@@ -76,26 +108,21 @@ class PipelineSimulator {
     this.nopInstr = parseInstruction("nop", -1);
 
     this.regFile = new RegisterFile();
-
-    // ✅ NOVA HIERARQUIA DE MEMÓRIA (L1, L2, L3, DRAM)
     this.memoryHierarchy = new MemoryHierarchy();
-
     this.predictor = new OneBitPredictor(config.predictorSize || 32);
 
-    // Registradores de pipeline
     this.IF_ID = { instr: this.nopInstr };
     this.ID_EX = { instr: this.nopInstr };
     this.EX_MEM = { instr: this.nopInstr };
     this.MEM_WB = { instr: this.nopInstr };
 
-    // Controle de estado
     this.lastCommittedInstr = null;
     this.flushedPCs = [];
     this.stall = false;
     this.stallCycles = 0;
     this.jumpPending = false;
+    this.flushInProgress = false; // CORRIGIDO: Flag para controlar flush
 
-    // Métricas
     this.cycle = 0;
     this.instructionsCommitted = 0;
     this.flushes = 0;
@@ -104,203 +131,330 @@ class PipelineSimulator {
     this.branchPredictions = 0;
     this.branchCorrect = 0;
     this.finished = false;
+
+    this.maxCycles = config.maxCycles || 2000;
   }
 
   isNOP(i) { return !i || i.opcode === "nop"; }
 
-  // ============================================================
-  // Detecta hazard load-use
-  // ============================================================
-  detectLoadUseHazard() {
-    const id = this.IF_ID.instr;
-    const ex = this.ID_EX.instr;
-    if (this.isNOP(id) || this.isNOP(ex)) return false;
-    if (ex.opcode !== "lw") return false;
-
-    const reads = [];
-    switch (id.opcode) {
-      case "add": case "sub": case "and": case "or": case "xor": reads.push(id.rs1, id.rs2); break;
-      case "addi": case "lw": case "jalr": reads.push(id.rs1); break;
-      case "sw": reads.push(id.rs1, id.rs2); break;
-      case "beq": case "bne": reads.push(id.rs1, id.rs2); break;
-    }
-    return reads.includes(ex.rd);
+  // CORRIGIDO: Verificar se instrução escreve em registrador
+  _writesToRegister(instr) {
+    if (!instr || this.isNOP(instr)) return false;
+    return ["add", "sub", "and", "or", "xor", "slt", "addi", "lw", "jal", "jalr"].includes(instr.opcode);
   }
 
-    getOperandValue(rn, fallback) {
-    // Forwarding from EX/MEM
-    if (this.EX_MEM && !this.isNOP(this.EX_MEM.instr) && this.EX_MEM.instr.rd === rn)
-        return this.EX_MEM.aluResult;
-    // Forwarding from MEM/WB (use memData if present)
-    if (this.MEM_WB && !this.isNOP(this.MEM_WB.instr) && this.MEM_WB.instr.rd === rn)
-        return (this.MEM_WB.memData != null) ? this.MEM_WB.memData : this.MEM_WB.aluResult;
-    // Fallback: use value captured in ID stage (safer) — se não existir, leia o RegisterFile
-    return (fallback !== undefined) ? fallback : this.regFile.read(rn);
+  // ---------------- IF ----------------
+  doIF(prev) {
+    if (this.stallCycles > 0 || this.stall || this.flushInProgress) return;
+    if (this.jumpPending) { 
+      this.jumpPending = false; 
+      return; 
     }
-
-
-
-  // ============================================================
-  // IF – Busca
-  // ============================================================
-  doIF() {
-    if (this.stallCycles > 0 || this.stall) return;
-    if (this.jumpPending) { this.jumpPending = false; return; }
 
     const pc = this.pc;
     if (pc >= this.program.length) return;
 
-    // ✅ Atualizado para usar hierarquia de memória
     const res = this.memoryHierarchy.readInstr(pc);
-    if (!res.hit) { this.stallCycles = res.latency; this.stallsCache += res.latency; return; }
+    if (!res.hit) { 
+      this.stallCycles = res.latency; 
+      this.stallsCache += res.latency; 
+      return; 
+    }
 
     const instr = this.program[pc];
     this.IF_ID = { instr, pc };
     this.pc = pc + 1;
   }
 
-  // ============================================================
-  // ID – Decodificação
-  // ============================================================
-  doID() {
-    if (this.stallCycles > 0) return;
-    const instr = this.IF_ID.instr;
-    if (this.isNOP(instr)) { this.ID_EX = { instr: this.nopInstr }; return; }
+  // ---------------- ID ----------------
+  doID(prev) {
+    if (this.stallCycles > 0 || this.flushInProgress) return;
+    const instr = prev.IF_ID.instr;
+    if (this.isNOP(instr)) { 
+      this.ID_EX = { instr: this.nopInstr }; 
+      return; 
+    }
+
+    let hasHazard = false;
+    
+    // CORRIGIDO: Detecção mais completa de hazards
+    // Verifica load-use hazards com qualquer instrução que escreve em registrador
+    const checkHazard = (laterInstr, rd) => {
+      if (rd === undefined || rd === 0) return false;
+      if (instr.rs1 !== undefined && instr.rs1 === rd) return true;
+      if (instr.rs2 !== undefined && instr.rs2 === rd) return true;
+      return false;
+    };
+
+    // Load no estágio EX (load-use hazard crítico)
+    if (prev.ID_EX.instr && prev.ID_EX.instr.opcode === "lw") {
+      if (checkHazard(instr, prev.ID_EX.instr.rd)) hasHazard = true;
+    }
+
+    // Load no estágio MEM
+    if (prev.EX_MEM.instr && prev.EX_MEM.instr.opcode === "lw") {
+      if (checkHazard(instr, prev.EX_MEM.instr.rd)) hasHazard = true;
+    }
+
+    if (hasHazard) {
+      this.ID_EX = { instr: this.nopInstr };
+      this.stallCycles = 1;
+      this.stallsData++;
+      return;
+    }
 
     this.ID_EX = {
       instr,
-      pc: this.IF_ID.pc,
+      pc: prev.IF_ID.pc,
       rs1Val: instr.rs1 !== undefined ? this.regFile.read(instr.rs1) : 0,
       rs2Val: instr.rs2 !== undefined ? this.regFile.read(instr.rs2) : 0
     };
   }
 
-  // ============================================================
-  // EX – Execução
-  // ============================================================
-  doEX() {
-    const instr = this.ID_EX.instr;
-    if (this.isNOP(instr)) { this.EX_MEM = { instr: this.nopInstr }; return; }
+  // ---------------- EX ----------------
+  doEX(prev) {
+    if (this.flushInProgress) {
+      this.EX_MEM = { instr: this.nopInstr };
+      return;
+    }
 
-    let op1 = instr.rs1 !== undefined ? this.getOperandValue(instr.rs1, this.ID_EX.rs1Val) : 0;
-    let op2 = instr.rs2 !== undefined ? this.getOperandValue(instr.rs2, this.ID_EX.rs2Val) : 0;
+    const instr = prev.ID_EX.instr;
+    if (this.isNOP(instr)) { 
+      this.EX_MEM = { instr: this.nopInstr }; 
+      return; 
+    }
+
+    // Valores base vindos do ID
+    let op1 = prev.ID_EX.rs1Val;
+    let op2 = prev.ID_EX.rs2Val;
+
+    // CORRIGIDO: Forwarding completo e correto
+    // Forwarding de EX/MEM (prioridade maior - mais recente)
+    if (prev.EX_MEM.instr && this._writesToRegister(prev.EX_MEM.instr)) {
+      const rd = prev.EX_MEM.instr.rd;
+      if (rd !== undefined && rd !== 0) {
+        const fwdValue = prev.EX_MEM.aluResult;
+        if (instr.rs1 !== undefined && instr.rs1 === rd) {
+          op1 = fwdValue;
+        }
+        if (instr.rs2 !== undefined && instr.rs2 === rd) {
+          op2 = fwdValue;
+        }
+      }
+    }
+    
+    // Forwarding de MEM/WB (prioridade menor)
+    if (prev.MEM_WB.instr && this._writesToRegister(prev.MEM_WB.instr)) {
+      const rd = prev.MEM_WB.instr.rd;
+      if (rd !== undefined && rd !== 0) {
+        // Para LW, usar memData; para outras, usar aluResult
+        const wbValue = (prev.MEM_WB.instr.opcode === "lw" && prev.MEM_WB.memData !== null && prev.MEM_WB.memData !== undefined)
+          ? prev.MEM_WB.memData 
+          : prev.MEM_WB.aluResult;
+        
+        // Só faz forwarding se EX/MEM não forneceu o mesmo registrador
+        if (instr.rs1 !== undefined && instr.rs1 === rd) {
+          if (!prev.EX_MEM.instr || prev.EX_MEM.instr.rd !== rd) {
+            op1 = wbValue;
+          }
+        }
+        if (instr.rs2 !== undefined && instr.rs2 === rd) {
+          if (!prev.EX_MEM.instr || prev.EX_MEM.instr.rd !== rd) {
+            op2 = wbValue;
+          }
+        }
+      }
+    }
 
     let alu = 0, takeBranch = false, targetPC = this.pc;
 
+    // CORRIGIDO: Operações ALU com overflow de 32 bits
     switch (instr.opcode) {
-      case "add": alu = op1 + op2; break;
-      case "sub": alu = op1 - op2; break;
+      case "add": alu = (op1 + op2) | 0; break;
+      case "sub": alu = (op1 - op2) | 0; break;
       case "and": alu = op1 & op2; break;
       case "or":  alu = op1 | op2; break;
       case "xor": alu = op1 ^ op2; break;
-      case "addi": alu = op1 + instr.imm; break;
-      case "lw": case "sw": alu = op1 + instr.imm; break;
-      case "beq": takeBranch = (op1 === op2); targetPC = this.ID_EX.pc + instr.imm; break;
-      case "bne": takeBranch = (op1 !== op2); targetPC = this.ID_EX.pc + instr.imm; break;
-      case "jal": takeBranch = true; alu = this.ID_EX.pc + 1; targetPC = this.ID_EX.pc + instr.imm; break;
-      case "jalr": takeBranch = true; alu = this.ID_EX.pc + 1; targetPC = (op1 + instr.imm) & ~1; break;
+      case "slt": alu = (op1 < op2) ? 1 : 0; break;
+      case "addi": alu = (op1 + instr.imm) | 0; break;
+      case "lw": case "sw": alu = (op1 + instr.imm) | 0; break;
+      case "beq": 
+        takeBranch = (op1 === op2); 
+        targetPC = (prev.ID_EX.pc + instr.imm) | 0; 
+        break;
+      case "bne": 
+        takeBranch = (op1 !== op2); 
+        targetPC = (prev.ID_EX.pc + instr.imm) | 0; 
+        break;
+      case "jal": 
+        takeBranch = true; 
+        alu = (prev.ID_EX.pc + 1) | 0; 
+        targetPC = (prev.ID_EX.pc + instr.imm) | 0; 
+        break;
+      case "jalr": 
+        takeBranch = true; 
+        alu = (prev.ID_EX.pc + 1) | 0; 
+        // CORRIGIDO: JALR deve zerar o bit menos significativo
+        targetPC = ((op1 + instr.imm) & ~1) | 0; 
+        break;
     }
 
-    // Controle de fluxo
-    // -------- substitua o bloco atual de branch handling em doEX() por isto --------
-    if (["beq","bne","jal","jalr"].includes(instr.opcode)) {
-        const actual = takeBranch;
-        const pcToIndex = this.ID_EX.pc; // pc do branch sendo resolvido
+    // Tratamento de branches e jumps
+    if (["beq", "bne", "jal", "jalr"].includes(instr.opcode)) {
+      const actual = takeBranch;
+      const pcIndex = prev.ID_EX.pc;
+      const predicted = this.predictor.predict(pcIndex);
+      this.branchPredictions++;
 
-        // use preditor 1-bit
-        const predicted = this.predictor.predict(pcToIndex);
-        this.branchPredictions++;
+      if (predicted !== actual) {
+        this.flushes++;
+        // CORRIGIDO: Flush mais robusto com flag de controle
+        this.flushInProgress = true;
+        this.IF_ID = { instr: this.nopInstr };
+        this.ID_EX = { instr: this.nopInstr };
+        this.EX_MEM = { instr: this.nopInstr };
+        this.pc = actual ? targetPC : ((pcIndex + 1) | 0);
+        this.jumpPending = true;
+      } else {
+        this.branchCorrect++;
+      }
 
-        if (predicted !== actual) {
-            this.flushes++;
-
-            // salve o pc antes de sobrescrever ID_EX
-            const oldIDEXpc = this.ID_EX.pc;
-
-            this.IF_ID = { instr: this.nopInstr };
-            this.ID_EX = { instr: this.nopInstr };
-            this.pc = actual ? targetPC : (oldIDEXpc + 1);
-            this.jumpPending = true;
-
-            // atualize preditor
-            this.predictor.update(pcToIndex, actual);
-        } else {
-            this.branchCorrect++;
-            // reforça o preditor
-            this.predictor.update(pcToIndex, actual);
-        }
+      this.predictor.update(pcIndex, actual);
     }
 
-
-
-    this.EX_MEM = { instr, aluResult: alu, rd: instr.rd, rs2Val: this.ID_EX.rs2Val };
+    this.EX_MEM = { 
+      instr, 
+      aluResult: alu, 
+      rd: instr.rd, 
+      rs2Val: op2 // CORRIGIDO: Usar op2 após forwarding
+    };
   }
 
-  // ============================================================
-  // MEM – Acesso à memória
-  // ============================================================
-  doMEM() {
-    const instr = this.EX_MEM.instr;
-    if (this.isNOP(instr)) { this.MEM_WB = { instr: this.nopInstr }; return; }
+  // ---------------- MEM ----------------
+  doMEM(prev) {
+    if (this.flushInProgress) {
+      this.MEM_WB = { instr: this.nopInstr };
+      this.flushInProgress = false; // Limpa flag após flush completo
+      return;
+    }
+
+    const instr = prev.EX_MEM.instr;
+    if (this.isNOP(instr)) { 
+      this.MEM_WB = { instr: this.nopInstr }; 
+      return; 
+    }
 
     let memData = null;
     if (instr.opcode === "lw") {
-      const res = this.memoryHierarchy.readData(this.EX_MEM.aluResult);
-      if (!res.hit) { this.stallCycles = res.latency; this.stallsCache += res.latency; return; }
+      const res = this.memoryHierarchy.readData(prev.EX_MEM.aluResult);
+      if (!res.hit) { 
+        this.stallCycles = res.latency; 
+        this.stallsCache += res.latency; 
+        return; 
+      }
       memData = res.value;
     } else if (instr.opcode === "sw") {
-      const res = this.memoryHierarchy.writeData(this.EX_MEM.aluResult, this.EX_MEM.rs2Val);
-      if (!res.hit) { this.stallCycles = res.latency; this.stallsCache += res.latency; return; }
+      const res = this.memoryHierarchy.writeData(prev.EX_MEM.aluResult, prev.EX_MEM.rs2Val);
+      if (!res.hit) { 
+        this.stallCycles = res.latency; 
+        this.stallsCache += res.latency; 
+        return; 
+      }
     }
 
-    this.MEM_WB = { instr, aluResult: this.EX_MEM.aluResult, memData, rd: instr.rd };
+    this.MEM_WB = { 
+      instr, 
+      aluResult: prev.EX_MEM.aluResult, 
+      memData, 
+      rd: instr.rd 
+    };
   }
 
-  // ============================================================
-  // WB – Write Back
-  // ============================================================
-  doWB() {
-    const instr = this.MEM_WB.instr;
+  // ---------------- WB ----------------
+  doWB(prev) {
+    const instr = prev.MEM_WB.instr;
     this.lastCommittedInstr = instr;
     if (this.isNOP(instr)) return;
 
     switch (instr.opcode) {
-      case "add": case "sub": case "and": case "or": case "xor":
+      case "add": case "sub": case "and": case "or": case "xor": case "slt":
       case "addi": case "jal": case "jalr":
-        this.regFile.write(instr.rd, this.MEM_WB.aluResult); break;
+        this.regFile.write(instr.rd, prev.MEM_WB.aluResult); 
+        break;
       case "lw":
-        this.regFile.write(instr.rd, this.MEM_WB.memData); break;
+        this.regFile.write(instr.rd, prev.MEM_WB.memData); 
+        break;
     }
     this.instructionsCommitted++;
   }
 
-  // ============================================================
-  // Tick (um ciclo)
-  // ============================================================
+  getStats() {
+    return {
+      cycles: this.cycle,
+      instructions: this.instructionsCommitted,
+      CPI: this.instructionsCommitted ? this.cycle / this.instructionsCommitted : 0,
+      flushes: this.flushes,
+      stallsData: this.stallsData,
+      stallsCache: this.stallsCache,
+      branchPredictions: this.branchPredictions,
+      branchCorrect: this.branchCorrect,
+      caches: this.memoryHierarchy.stats()
+    };
+  }
+
   tick() {
     if (this.finished) return;
     this.cycle++;
-    this.lastCommittedInstr = null;
-    this.flushedPCs = [];
+    
+    if (this.cycle > this.maxCycles) { 
+      console.warn("⚠️ Limite de ciclos atingido."); 
+      this.finished = true; 
+      return; 
+    }
 
-    this.doWB();
-    if (this.stallCycles > 0) { this.stallCycles--; return; }
+    // Snapshot do estado anterior para forwarding correto
+    const prev = {
+      IF_ID: this.IF_ID, 
+      ID_EX: this.ID_EX, 
+      EX_MEM: this.EX_MEM, 
+      MEM_WB: this.MEM_WB
+    };
 
-    this.doMEM();
-    this.doEX();
+    // Ordem inversa com snapshots
+    this.doWB(prev);
 
-    if (this.detectLoadUseHazard()) { this.stall = true; this.stallsData++; }
-    else this.stall = false;
+    if (this.stallCycles > 0) {
+      this.stallCycles--;
+      this.checkCompletion();
+      return;
+    }
 
-    this.doID();
-    this.doIF();
+    this.doMEM(prev);
+    this.doEX(prev);
+    this.doID(prev);
+    this.doIF(prev);
 
-    const empty = [this.IF_ID, this.ID_EX, this.EX_MEM, this.MEM_WB].every(s => this.isNOP(s.instr));
-    if (empty && this.pc >= this.program.length) this.finished = true;
+    this.checkCompletion();
+  }
+
+  // CORRIGIDO: Lógica de completion mais robusta
+  checkCompletion() {
+    // Verifica se o pipeline está completamente vazio
+    const pipelineEmpty = [this.IF_ID, this.ID_EX, this.EX_MEM, this.MEM_WB]
+      .every(s => this.isNOP(s.instr));
+    
+    // Verifica se não há mais instruções para buscar
+    const pcBeyondProgram = this.pc >= this.program.length;
+    
+    // Verifica se não há stalls pendentes
+    const noStalls = this.stallCycles === 0 && !this.stall;
+    
+    // Só finaliza se todas as condições forem satisfeitas
+    if (pipelineEmpty && pcBeyondProgram && noStalls && !this.flushInProgress) {
+      this.finished = true;
+      console.log("✅ SIMULAÇÃO FINALIZADA - Ciclos:", this.cycle, "| Instruções:", this.instructionsCommitted);
+    }
   }
 }
 
-// ============================================================
-// Exporta globalmente
-// ============================================================
 window.PipelineSimulator = PipelineSimulator;
