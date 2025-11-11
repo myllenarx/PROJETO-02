@@ -1,17 +1,14 @@
-name: 🚀 Deploy Pipeline Simulator to GitHub Pages
+name: Deploy Pipeline Simulator to GitHub Pages
 
-# O deploy será executado automaticamente quando houver push na branch main
 on:
   push:
     branches: [ main ]
 
-# Permissões necessárias para o Pages funcionar corretamente
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Configura o ambiente do GitHub Pages
 jobs:
   deploy:
     environment:
